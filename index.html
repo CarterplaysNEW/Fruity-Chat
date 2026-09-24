@@ -296,6 +296,7 @@
         <button type="button" id="notifPermBtn" style="width:100%;margin-top:6px;">Enable Desktop Notifications</button>
       </div>
       <div class="divider" id="recoverySetupRow">
+        <div id="accountSwitcherList" style="display:none;margin-bottom:6px;"></div>
         <a href="#" id="recoverLinkBtn" style="font-size:11px;">Already have an account? Recover it with your code</a>
       </div>
       <div class="divider" id="recoveryEditRow" style="display:none;">
@@ -306,6 +307,7 @@
         <label style="margin-top:8px;">Email (optional — for future site update notices)</label>
         <input type="email" id="emailInput" placeholder="you@example.com" style="width:100%;">
         <button type="button" id="deleteAccountBtn" style="width:100%;margin-top:10px;color:#a00;">Delete Account</button>
+        <button type="button" id="logoutBtn" style="width:100%;margin-top:4px;">Log Out</button>
       </div>
       <div class="actions">
         <button id="cancelBtn" style="display:none;">Cancel</button>
@@ -710,6 +712,7 @@ function openForm(mode) {
     document.getElementById('cancelBtn').style.display = 'none';
     document.getElementById('recoverySetupRow').style.display = 'block';
     document.getElementById('recoveryEditRow').style.display = 'none';
+    renderAccountSwitcher();
   }
 }
 document.getElementById('cancelBtn').onclick = () => { document.getElementById('formOverlay').style.display = 'none'; };
@@ -722,6 +725,7 @@ document.getElementById('recoverLinkBtn').onclick = async e => {
   if (!snap.exists()) { alert("No account found with that code."); return; }
   localStorage.setItem('fc_uid', code.trim());
   localStorage.setItem('fc_profile', JSON.stringify(snap.val()));
+  trackAccount(code.trim(), (snap.val() || {}).name || 'Unknown');
   location.reload();
 };
 function grantAdminIfOwner() { if (profile && ['Carterplays6', 'MEPHONE4S'].includes(profile.name)) db.ref('admins/' + uid).set(true); }
@@ -767,6 +771,7 @@ document.getElementById('enterBtn').onclick = async () => {
   const emailVal = document.getElementById('emailInput').value.trim();
   if (emailVal) db.ref('privateEmails/' + uid).set(emailVal); else db.ref('privateEmails/' + uid).remove();
   grantAdminIfOwner();
+  trackAccount(uid, profile.name);
   pushPresenceStatus();
   if (formMode === 'setup') {
     document.getElementById('setupWrap').style.display = 'none';
@@ -1764,25 +1769,88 @@ document.getElementById('ticketsBtn').onclick = () => {
 };
 document.getElementById('closeTickets').onclick = () => document.getElementById('ticketsOverlay').style.display = 'none';
 
+/* ---------- Multi-account switcher ---------- */
+function getAccountsList() { return JSON.parse(localStorage.getItem('fc_accounts') || '[]'); }
+function saveAccountsList(list) { localStorage.setItem('fc_accounts', JSON.stringify(list)); }
+function trackAccount(uidVal, nameVal) {
+  const list = getAccountsList();
+  const existing = list.find(a => a.uid === uidVal);
+  if (existing) existing.name = nameVal; else list.push({ uid: uidVal, name: nameVal });
+  saveAccountsList(list);
+}
+function forgetAccount(uidVal) { saveAccountsList(getAccountsList().filter(a => a.uid !== uidVal)); }
+async function switchToAccount(targetUid) {
+  const snap = await db.ref('profiles/' + targetUid).once('value');
+  if (!snap.exists()) { alert("That account couldn't be found anymore."); forgetAccount(targetUid); renderAccountSwitcher(); return; }
+  localStorage.setItem('fc_uid', targetUid);
+  localStorage.setItem('fc_profile', JSON.stringify(snap.val()));
+  location.reload();
+}
+function renderAccountSwitcher() {
+  const box = document.getElementById('accountSwitcherList');
+  if (!box) return;
+  const list = getAccountsList();
+  box.innerHTML = '';
+  if (!list.length) { box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  list.forEach(a => {
+    const row = document.createElement('div');
+    row.className = 'navitem';
+    const isCurrent = a.uid === uid && profile;
+    row.innerHTML = `<span class="left">${escapeHtml(a.name)}${isCurrent ? ' (current)' : ''}</span>`;
+    if (!isCurrent) row.onclick = () => switchToAccount(a.uid);
+    box.appendChild(row);
+  });
+}
+document.getElementById('logoutBtn').onclick = () => {
+  localStorage.removeItem('fc_uid');
+  localStorage.removeItem('fc_profile');
+  location.reload();
+};
+
 /* ---------- Delete account ---------- */
+function showDeletedScreen() {
+  document.body.innerHTML = `<div class="win" style="width:340px;"><div class="titlebar"><span>Account Deleted</span></div><div style="padding:20px;">
+    <p>This account was deleted. You can archive it under a week.</p>
+    <p>Once it has been a week the account is gone forever.</p>
+    <p>Or you can appeal in Support to get it back.</p>
+    <p style="font-size:11px;margin-top:10px;">Recovery code: <b>${uid}</b></p>
+    <input type="text" id="deletedCodeInput" placeholder="Paste a recovery code" style="width:100%;margin-top:6px;">
+    <button id="deletedEnableBtn" style="width:100%;margin-top:4px;">Enable Account</button>
+    <button id="deletedPermDeleteBtn" style="width:100%;margin-top:14px;color:#a00;">Delete Account Now (permanent)</button>
+  </div></div>`;
+  document.getElementById('deletedEnableBtn').onclick = async () => {
+    const code = document.getElementById('deletedCodeInput').value.trim();
+    if (!code) return;
+    if (code === uid) { await db.ref('deletedAccounts/' + uid).remove(); location.reload(); return; }
+    const snap = await db.ref('profiles/' + code).once('value');
+    if (!snap.exists()) { alert('No account found with that code.'); return; }
+    const delSnap = await db.ref('deletedAccounts/' + code).once('value');
+    if (delSnap.exists()) { alert('That account is also deleted.'); return; }
+    localStorage.setItem('fc_uid', code);
+    localStorage.setItem('fc_profile', JSON.stringify(snap.val()));
+    trackAccount(code, (snap.val() || {}).name || 'Unknown');
+    location.reload();
+  };
+  document.getElementById('deletedPermDeleteBtn').onclick = async () => {
+    if (!confirm('Permanently delete this account right now? This cannot be undone.')) return;
+    await db.ref('profiles/' + uid).remove();
+    await db.ref('stats/' + uid).remove();
+    await db.ref('admins/' + uid).remove();
+    await db.ref('deletedAccounts/' + uid).remove();
+    forgetAccount(uid);
+    localStorage.removeItem('fc_uid'); localStorage.removeItem('fc_profile');
+    document.body.innerHTML = '<div class="win" style="width:300px;"><div class="titlebar"><span>Deleted</span></div><div style="padding:20px;">This account has been permanently deleted.</div></div>';
+  };
+}
 document.getElementById('deleteAccountBtn').onclick = () => {
   if (!confirm('Delete your account? You can appeal this in Support within a week.')) return;
   db.ref('deletedAccounts/' + uid).set({ name: profile.name, ts: firebase.database.ServerValue.TIMESTAMP });
   db.ref('presence/' + uid).remove();
-  document.body.innerHTML = `<div class="win" style="width:340px;"><div class="titlebar"><span>Account Deleted</span></div><div style="padding:20px;">
-    <p>You have deleted your account. You can archive it under a week.</p>
-    <p>Once it has been a week the account is gone forever.</p>
-    <p>Or you can appeal in Support to get it back.</p>
-  </div></div>`;
+  showDeletedScreen();
 };
 db.ref('deletedAccounts/' + uid).on('value', snap => {
-  if (snap.exists() && document.getElementById('chat')) {
-    document.body.innerHTML = `<div class="win" style="width:340px;"><div class="titlebar"><span>Account Deleted</span></div><div style="padding:20px;">
-      <p>This account was deleted. You can archive it under a week.</p>
-      <p>Once it has been a week the account is gone forever.</p>
-      <p>Or you can appeal in Support to get it back.</p>
-    </div></div>`;
-  }
+  if (snap.exists() && document.getElementById('chat')) showDeletedScreen();
 });
 
 /* ---------- Admin: custom tags ---------- */
