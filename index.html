@@ -297,12 +297,21 @@
       </div>
       <div class="divider" id="recoverySetupRow">
         <div id="accountSwitcherList" style="display:none;margin-bottom:6px;"></div>
-        <a href="#" id="recoverLinkBtn" style="font-size:11px;">Already have an account? Recover it with your code</a>
+        <label>Log In</label>
+        <input type="text" id="loginUsername" placeholder="Username">
+        <input type="password" id="loginPassword" placeholder="Password" style="margin-top:4px;">
+        <button type="button" id="loginBtn" style="width:100%;margin-top:4px;">Log In</button>
+        <div class="err" id="loginErr"></div>
+        <p style="font-size:10px;">Can't log in? If this account doesn't have a password yet, go to wherever you first signed up, open Settings, and add one there — then come back and log in here.</p>
+        <a href="#" id="recoverLinkBtn" style="font-size:11px;">Or recover with your code instead</a>
       </div>
       <div class="divider" id="recoveryEditRow" style="display:none;">
         <label>Your Recovery Code</label>
         <p style="font-size:11px;">Save this somewhere safe — it's the <b>only</b> way to get your account back if you clear cookies or switch browsers.</p>
-        <input type="text" id="recoveryCodeBox" readonly style="width:100%;">
+        <div style="display:flex;gap:4px;">
+          <input type="password" id="recoveryCodeBox" readonly style="flex:1;">
+          <button type="button" id="toggleRecoveryEyeBtn" style="width:32px;">👁️</button>
+        </div>
         <button type="button" id="copyRecoveryBtn" style="width:100%;margin-top:4px;">Copy Code</button>
         <label style="margin-top:8px;">Email (optional — for future site update notices)</label>
         <input type="email" id="emailInput" placeholder="you@example.com" style="width:100%;">
@@ -551,24 +560,35 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 const storage = firebase.storage();
+
+/* Media uploads now go through Cloudinary instead of Firebase Storage — no CORS setup needed on your end.
+   1. Sign up free at cloudinary.com
+   2. Dashboard -> copy your "Cloud Name"
+   3. Settings -> Upload -> Add upload preset -> Signing Mode: Unsigned -> Save -> copy the preset name
+   4. Paste both below. */
+const CLOUDINARY_CLOUD_NAME = 'PASTE_YOUR_CLOUD_NAME_HERE';
+const CLOUDINARY_UPLOAD_PRESET = 'PASTE_YOUR_UPLOAD_PRESET_HERE';
+
 async function uploadDataUrl(dataUrl, path, onProgress) {
   const blob = await (await fetch(dataUrl)).blob();
   return uploadBlob(blob, path, onProgress);
 }
-async function uploadBlob(blob, path, onProgress) {
-  const ref = storage.ref(path);
-  const task = ref.put(blob);
-  await new Promise((resolve, reject) => {
-    let timer;
-    const resetTimer = () => { clearTimeout(timer); timer = setTimeout(() => { task.cancel(); reject(new Error('Upload stalled for 30s — check your Storage rules and CORS settings.')); }, 30000); };
-    resetTimer();
-    task.on('state_changed',
-      snap => { resetTimer(); if (onProgress) onProgress(Math.round((snap.bytesTransferred / snap.totalBytes) * 100)); },
-      err => { clearTimeout(timer); reject(err); },
-      () => { clearTimeout(timer); resolve(); }
-    );
+function uploadBlob(blob, path, onProgress) {
+  return new Promise((resolve, reject) => {
+    if (!CLOUDINARY_CLOUD_NAME || CLOUDINARY_CLOUD_NAME.startsWith('PASTE_')) { reject(new Error('Add your Cloudinary cloud name + upload preset in the code first (search "CLOUDINARY_CLOUD_NAME").')); return; }
+    const formData = new FormData();
+    formData.append('file', blob);
+    formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/auto/upload`);
+    xhr.upload.onprogress = e => { if (onProgress && e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100)); };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) { try { resolve(JSON.parse(xhr.responseText).secure_url); } catch (e) { reject(new Error('Unexpected response from Cloudinary.')); } }
+      else reject(new Error(`Cloudinary upload failed (${xhr.status}). Check your cloud name and that the preset is set to Unsigned.`));
+    };
+    xhr.onerror = () => reject(new Error('Network error reaching Cloudinary.'));
+    xhr.send(formData);
   });
-  return await ref.getDownloadURL();
 }
 
 /* ---------- Theme + size + status (device preferences) ---------- */
@@ -716,7 +736,8 @@ function openForm(mode) {
   }
 }
 document.getElementById('cancelBtn').onclick = () => { document.getElementById('formOverlay').style.display = 'none'; };
-document.getElementById('copyRecoveryBtn').onclick = () => { const box = document.getElementById('recoveryCodeBox'); box.select(); document.execCommand('copy'); };
+document.getElementById('copyRecoveryBtn').onclick = () => { const box = document.getElementById('recoveryCodeBox'); box.type = 'text'; box.select(); document.execCommand('copy'); };
+document.getElementById('toggleRecoveryEyeBtn').onclick = () => { const box = document.getElementById('recoveryCodeBox'); box.type = box.type === 'password' ? 'text' : 'password'; };
 document.getElementById('recoverLinkBtn').onclick = async e => {
   e.preventDefault();
   const code = prompt('Enter your recovery code:');
@@ -1814,11 +1835,16 @@ function showDeletedScreen() {
     <p>This account was deleted. You can archive it under a week.</p>
     <p>Once it has been a week the account is gone forever.</p>
     <p>Or you can appeal in Support to get it back.</p>
-    <p style="font-size:11px;margin-top:10px;">Recovery code: <b>${uid}</b></p>
+    <p style="font-size:11px;margin-top:10px;">Recovery code: <b id="delRecoveryText">••••••••••</b> <button type="button" id="delRecoveryEyeBtn" style="font-size:10px;">👁️</button></p>
     <input type="text" id="deletedCodeInput" placeholder="Paste a recovery code" style="width:100%;margin-top:6px;">
     <button id="deletedEnableBtn" style="width:100%;margin-top:4px;">Enable Account</button>
     <button id="deletedPermDeleteBtn" style="width:100%;margin-top:14px;color:#a00;">Delete Account Now (permanent)</button>
   </div></div>`;
+  let delCodeRevealed = false;
+  document.getElementById('delRecoveryEyeBtn').onclick = () => {
+    delCodeRevealed = !delCodeRevealed;
+    document.getElementById('delRecoveryText').textContent = delCodeRevealed ? uid : '••••••••••';
+  };
   document.getElementById('deletedEnableBtn').onclick = async () => {
     const code = document.getElementById('deletedCodeInput').value.trim();
     if (!code) return;
@@ -2088,6 +2114,7 @@ function attachRemoteStream(otherUid, stream) {
     let audio = vcAudioEls[otherUid];
     if (!audio) { audio = new Audio(); audio.autoplay = true; vcAudioEls[otherUid] = audio; }
     audio.srcObject = stream;
+    audio.play().catch(() => {});
   }
 }
 let currentFsStreamerId = null, fsWatchersRef = null, fsWatchersHandler = null;
@@ -2233,6 +2260,7 @@ function leaveVC() {
   if (screenStream) { screenStream.getTracks().forEach(t => t.stop()); screenStream = null; }
   switchView('main');
 }
+document.addEventListener('click', () => { Object.values(vcAudioEls).forEach(a => a.play().catch(() => {})); }, { once: false });
 function toggleMic() {
   if (!localStream) { alert('No microphone connected.'); return; }
   const track = localStream.getAudioTracks()[0];
@@ -2252,7 +2280,7 @@ async function toggleScreenShare() {
     return;
   }
   try {
-    screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+    screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
     Object.values(vcPeers).forEach(pc => screenStream.getTracks().forEach(t => pc.addTrack(t, screenStream)));
     if (!document.getElementById('vcTile_' + uid)) renderVcTiles();
     attachRemoteStream(uid, screenStream);
