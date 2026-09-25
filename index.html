@@ -566,8 +566,8 @@ const storage = firebase.storage();
    2. Dashboard -> copy your "Cloud Name"
    3. Settings -> Upload -> Add upload preset -> Signing Mode: Unsigned -> Save -> copy the preset name
    4. Paste both below. */
-const CLOUDINARY_CLOUD_NAME = 'fdhuhlno';
-const CLOUDINARY_UPLOAD_PRESET = 'iikbj3b9';
+const CLOUDINARY_CLOUD_NAME = 'PASTE_YOUR_CLOUD_NAME_HERE';
+const CLOUDINARY_UPLOAD_PRESET = 'PASTE_YOUR_UPLOAD_PRESET_HERE';
 
 async function uploadDataUrl(dataUrl, path, onProgress) {
   const blob = await (await fetch(dataUrl)).blob();
@@ -584,7 +584,11 @@ function uploadBlob(blob, path, onProgress) {
     xhr.upload.onprogress = e => { if (onProgress && e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100)); };
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) { try { resolve(JSON.parse(xhr.responseText).secure_url); } catch (e) { reject(new Error('Unexpected response from Cloudinary.')); } }
-      else reject(new Error(`Cloudinary upload failed (${xhr.status}). Check your cloud name and that the preset is set to Unsigned.`));
+      else {
+        let detail = xhr.responseText;
+        try { detail = JSON.parse(xhr.responseText).error.message; } catch (e) {}
+        reject(new Error(`Cloudinary upload failed (${xhr.status}): ${detail}`));
+      }
     };
     xhr.onerror = () => reject(new Error('Network error reaching Cloudinary.'));
     xhr.send(formData);
