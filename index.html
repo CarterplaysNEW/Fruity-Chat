@@ -207,7 +207,12 @@
   #gifPickerPanel { display:none; position:absolute; bottom:100%; left:4px; right:4px; max-height:260px; overflow-y:auto; background:#fff; border:1px solid #888; padding:6px; z-index:25; }
   #gifPickerPanel input { width:100%; }
   #gifPickerPanel .gifGrid { display:grid; grid-template-columns:repeat(3,1fr); gap:4px; margin-top:6px; }
-  #gifPickerPanel .gifGrid img { width:100%; cursor:pointer; border:1px solid var(--face-dark); }
+  #gifPickerPanel .gifTile { position:relative; }
+  #gifPickerPanel .gifTile img { width:100%; cursor:pointer; border:1px solid var(--face-dark); display:block; }
+  #gifPickerPanel .gifStar { position:absolute; top:2px; left:2px; font-size:15px; color:#ff0; text-shadow:0 0 2px #000; cursor:pointer; display:none; }
+  #gifPickerPanel .gifTile:hover .gifStar { display:block; }
+  #gifPickerPanel .gifInfoBtn { position:absolute; top:2px; right:2px; font-size:10px; background:rgba(0,0,0,.6); color:#fff; border-radius:50%; width:14px; height:14px; text-align:center; line-height:14px; cursor:pointer; }
+  #gifPickerPanel .gifEnd { grid-column:1 / -1; text-align:center; font-size:11px; color:#777; padding:8px; }
   #gifPickerPanel .gifTabs { display:flex; gap:4px; margin-top:4px; }
 
   body[data-theme="win01"] {
@@ -392,6 +397,7 @@
       <div id="serverList"></div>
       <div class="navitem" id="newServerBtn"><span class="left">+ New Server</span></div>
       <div class="sechdr">Projects</div>
+      <input type="text" id="projectSearchInput" placeholder="Search projects...">
       <div class="navitem" id="createProjectBtn"><span class="left">+ Create Project</span></div>
       <div id="projectsList"></div>
     </div>
@@ -591,8 +597,8 @@ const storage = firebase.storage();
    2. Dashboard -> copy your "Cloud Name"
    3. Settings -> Upload -> Add upload preset -> Signing Mode: Unsigned -> Save -> copy the preset name
    4. Paste both below. */
-const CLOUDINARY_CLOUD_NAME = 'fdhuhlno';
-const CLOUDINARY_UPLOAD_PRESET = 'iikbj3b9';
+const CLOUDINARY_CLOUD_NAME = 'PASTE_YOUR_CLOUD_NAME_HERE';
+const CLOUDINARY_UPLOAD_PRESET = 'PASTE_YOUR_UPLOAD_PRESET_HERE';
 
 async function uploadDataUrl(dataUrl, path, onProgress) {
   const blob = await (await fetch(dataUrl)).blob();
@@ -1164,7 +1170,7 @@ function openReactPicker(btn, reactRef) {
 }
 function renderReactions(row, reactRef, reactions) {
   let bar = row.querySelector('.reactBar');
-  if (!bar) { bar = document.createElement('div'); bar.className = 'reactBar'; row.querySelector('.txt').after(bar); }
+  if (!bar) { bar = document.createElement('div'); bar.className = 'reactBar'; row.querySelector('.msgBody').appendChild(bar); }
   bar.innerHTML = '';
   Object.keys(reactions).forEach(em => {
     const users = reactions[em] || {};
@@ -1466,10 +1472,10 @@ function buildCustomAudioPlayer(url, name) {
 }
 function maxFilesAllowed() { return hasFrugo(uid) ? 10 : 5; }
 function fileTypeLimitBytes(file) {
-  if (file.type.startsWith('video/')) return 100 * 1024 * 1024;
-  return 10 * 1024 * 1024; // Cloudinary free plan: images and other files capped at 10MB
+  if (file.type.startsWith('video/') || file.type.startsWith('audio/')) return 100 * 1024 * 1024;
+  return 10 * 1024 * 1024; // Cloudinary free plan: images and other raw files capped at 10MB
 }
-function fileTypeLimitLabel(file) { return file.type.startsWith('video/') ? '100MB' : '10MB'; }
+function fileTypeLimitLabel(file) { return (file.type.startsWith('video/') || file.type.startsWith('audio/')) ? '100MB' : '10MB'; }
 let pendingAttachments = [];
 document.getElementById('attachInput').multiple = true;
 document.getElementById('attachBtn').onclick = () => document.getElementById('attachInput').click();
@@ -1519,12 +1525,54 @@ dropZone.addEventListener('drop', async e => {
   if (e.dataTransfer.files.length) addPendingFiles(e.dataTransfer.files);
 });
 
-/* ---------- GIF picker (GIPHY) ---------- */
+/* ---------- GIF picker (GIPHY + user uploads) ---------- */
 const GIPHY_API_KEY = 'lQQsUCGi3RfHk9M469uK7gVsnzxm9n88';
 let gifTab = 'search';
-document.getElementById('gifBtn').onclick = () => { const p = document.getElementById('gifPickerPanel'); if (p.style.display === 'block') { p.style.display = 'none'; } else { p.style.display = 'block'; renderGifPanel(); } };
+let favoritesCache = {};
+db.ref('favorites/' + uid + '/gifs').on('value', snap => { favoritesCache = snap.val() || {}; refreshStarStates(); });
+function findFavoriteKeyByUrl(url) { return Object.keys(favoritesCache).find(k => favoritesCache[k].url === url); }
+function toggleFavoriteGif(url, preview) {
+  const key = findFavoriteKeyByUrl(url);
+  if (key) db.ref('favorites/' + uid + '/gifs/' + key).remove();
+  else db.ref('favorites/' + uid + '/gifs').push({ url, preview });
+}
+function refreshStarStates() {
+  document.querySelectorAll('.gifStar').forEach(star => { star.textContent = findFavoriteKeyByUrl(star.dataset.url) ? '★' : '☆'; });
+}
+function buildGifTile(url, preview, meta) {
+  const tile = document.createElement('div');
+  tile.className = 'gifTile';
+  const img = document.createElement('img');
+  img.src = preview || url;
+  img.onclick = () => sendGif(url);
+  tile.appendChild(img);
+  const star = document.createElement('span');
+  star.className = 'gifStar';
+  star.dataset.url = url;
+  star.textContent = findFavoriteKeyByUrl(url) ? '★' : '☆';
+  star.onclick = e => { e.stopPropagation(); toggleFavoriteGif(url, preview); };
+  tile.appendChild(star);
+  if (meta) {
+    const infoBtn = document.createElement('span');
+    infoBtn.className = 'gifInfoBtn';
+    infoBtn.textContent = '?';
+    infoBtn.onclick = e => { e.stopPropagation(); showGifInfo(meta); };
+    tile.appendChild(infoBtn);
+  }
+  return tile;
+}
+function showGifInfo(meta) {
+  alert(`Name: ${meta.name}\nUploaded by: ${meta.uploaderName}\nUploaded: ${new Date(meta.ts).toLocaleString()}`);
+  if (isAdmin() && confirm('Delete this GIF?')) db.ref('userGifs/' + meta.key).remove();
+}
+document.getElementById('gifBtn').onclick = () => { const p = document.getElementById('gifPickerPanel'); if (p.style.display === 'block') { p.style.display = 'none'; } else { p.style.display = 'block'; gifTab = 'search'; renderGifPanel(); } };
 document.getElementById('gifPickerPanel').onclick = e => e.stopPropagation();
 document.addEventListener('click', e => { if (!e.target.closest('#gifPickerPanel') && !e.target.closest('#gifBtn')) document.getElementById('gifPickerPanel').style.display = 'none'; });
+document.getElementById('gifPickerPanel').addEventListener('scroll', function () {
+  if (this.scrollTop + this.clientHeight < this.scrollHeight - 40) return;
+  if (gifTab === 'search') searchGifs(gifSearchState.query, false);
+  else if (gifTab === 'user') loadUserGifs(userGifState.term, false);
+});
 function renderGifPanel() {
   const panel = document.getElementById('gifPickerPanel');
   panel.innerHTML = `
@@ -1563,77 +1611,78 @@ async function startGifUpload(file) {
     grid.innerHTML = `<div style="padding:8px;color:#c00;">Upload failed: ${escapeHtml(e.message)}</div>`;
   }
 }
-function loadUserGifs(searchTerm) {
+let userGifState = { term: undefined, allKeys: [], shown: 0 };
+function loadUserGifs(searchTerm, append) {
   const grid = document.getElementById('gifGrid');
   if (!grid) return;
-  grid.innerHTML = '<div style="padding:8px;color:#777;">Loading...</div>';
+  if (!append) {
+    userGifState = { term: searchTerm, allKeys: [], shown: 0 };
+    grid.innerHTML = '<div style="padding:8px;color:#777;">Loading...</div>';
+  }
   db.ref('userGifs').once('value').then(snap => {
     const all = snap.val() || {};
-    let keys = Object.keys(all).sort((a, b) => (all[b].ts || 0) - (all[a].ts || 0));
-    if (searchTerm) keys = keys.filter(k => all[k].name.toLowerCase().includes(searchTerm.toLowerCase()));
-    grid.innerHTML = '';
-    if (!keys.length) { grid.innerHTML = '<div style="padding:8px;color:#777;">No user-uploaded GIFs yet.</div>'; return; }
-    keys.forEach(k => {
-      const img = document.createElement('img');
-      img.src = all[k].url; img.title = all[k].name;
-      img.onclick = () => sendGif(all[k].url);
-      grid.appendChild(img);
-    });
+    if (!append) {
+      let keys = Object.keys(all).sort((a, b) => (all[b].ts || 0) - (all[a].ts || 0));
+      if (searchTerm) keys = keys.filter(k => all[k].name.toLowerCase().includes(searchTerm.toLowerCase()));
+      userGifState.allKeys = keys;
+      grid.innerHTML = '';
+      if (!keys.length) { grid.innerHTML = '<div style="padding:8px;color:#777;">No user-uploaded GIFs yet.</div>'; return; }
+    }
+    const batch = userGifState.allKeys.slice(userGifState.shown, userGifState.shown + 20);
+    batch.forEach(k => grid.appendChild(buildGifTile(all[k].url, all[k].url, { key: k, name: all[k].name, uploaderName: all[k].uploaderName, ts: all[k].ts })));
+    userGifState.shown += batch.length;
+    if (userGifState.shown >= userGifState.allKeys.length && userGifState.allKeys.length) {
+      grid.insertAdjacentHTML('beforeend', `<div class="gifEnd">That's all the gifs for the search :(</div>`);
+    }
   });
 }
-async function searchGifs(query) {
+let gifSearchState = { query: '', offset: 0, loading: false, done: false };
+async function searchGifs(query, append) {
   const grid = document.getElementById('gifGrid');
-  if (!query.trim()) return;
   if (!GIPHY_API_KEY || GIPHY_API_KEY.startsWith('PASTE_')) { grid.innerHTML = '<div style="padding:8px;color:#777;">Add your GIPHY API key in the code first (search "GIPHY_API_KEY").</div>'; return; }
-  grid.innerHTML = '<div style="padding:8px;color:#777;">Searching...</div>';
+  if (!append) {
+    if (!query.trim()) return;
+    gifSearchState = { query, offset: 0, loading: false, done: false };
+    grid.innerHTML = '<div style="padding:8px;color:#777;">Searching...</div>';
+  } else {
+    if (gifSearchState.loading || gifSearchState.done || !gifSearchState.query) return;
+    gifSearchState.loading = true;
+  }
   try {
-    const res = await fetch(`https://api.giphy.com/v1/gifs/search?api_key=${GIPHY_API_KEY}&q=${encodeURIComponent(query)}&limit=15&rating=pg-13`);
+    const res = await fetch(`https://api.giphy.com/v1/gifs/search?api_key=${GIPHY_API_KEY}&q=${encodeURIComponent(gifSearchState.query)}&limit=15&offset=${gifSearchState.offset}&rating=pg-13`);
     const data = await res.json();
-    if (!res.ok) { grid.innerHTML = `<div style="padding:8px;color:#c00;">GIPHY error: ${escapeHtml((data.meta && data.meta.msg) || res.status)}</div>`; return; }
-    grid.innerHTML = '';
-    (data.data || []).forEach(g => {
-      const img = document.createElement('img');
-      img.src = g.images.fixed_height_small.url;
-      img.onclick = () => sendGif(g.images.original.url);
-      img.oncontextmenu = e => { e.preventDefault(); toggleFavoriteGif(g.images.original.url, g.images.fixed_height_small.url); };
-      img.title = 'Click to send, right-click to favorite';
-      grid.appendChild(img);
-    });
-    if (!data.data || !data.data.length) grid.innerHTML = '<div style="padding:8px;color:#777;">No results.</div>';
-  } catch (e) { grid.innerHTML = `<div style="padding:8px;color:#c00;">Search failed: ${escapeHtml(e.message)}</div>`; }
+    if (!res.ok) { grid.innerHTML = `<div style="padding:8px;color:#c00;">GIPHY error: ${escapeHtml((data.meta && data.meta.msg) || res.status)}</div>`; gifSearchState.loading = false; return; }
+    if (!append) grid.innerHTML = '';
+    const results = data.data || [];
+    results.forEach(g => grid.appendChild(buildGifTile(g.images.original.url, g.images.fixed_height_small.url)));
+    gifSearchState.offset += results.length;
+    gifSearchState.loading = false;
+    if (!results.length) {
+      gifSearchState.done = true;
+      if (!append && !grid.children.length) grid.innerHTML = '<div style="padding:8px;color:#777;">No results.</div>';
+      else grid.insertAdjacentHTML('beforeend', `<div class="gifEnd">That's all the gifs for the search :(</div>`);
+    }
+  } catch (e) { grid.innerHTML = `<div style="padding:8px;color:#c00;">Search failed: ${escapeHtml(e.message)}</div>`; gifSearchState.loading = false; }
 }
 function sendGif(url) {
   document.getElementById('gifPickerPanel').style.display = 'none';
-  const payload = { uid, text: '', ts: firebase.database.ServerValue.TIMESTAMP, mentions: [], attachment: { url, type: 'image/gif', name: 'gif' } };
+  const mentions = [];
+  if (replyContext && replyContext.uid !== uid) mentions.push(replyContext.uid);
+  const payload = { uid, text: '', ts: firebase.database.ServerValue.TIMESTAMP, mentions, attachments: [{ url, type: 'image/gif', name: 'gif' }] };
+  if (replyContext) payload.replyTo = { key: replyContext.key, uid: replyContext.uid, name: replyContext.name, text: replyContext.text };
   getConvoRef(currentView).push(payload);
+  if (!currentView.startsWith('srv:') && currentView !== 'main') { lastActivity[currentView] = Date.now(); renderDMList(); }
+  replyContext = null; document.getElementById('replyBar').style.display = 'none';
   registerMessageSent();
-}
-function toggleFavoriteGif(url, preview) {
-  db.ref('favorites/' + uid + '/gifs').orderByValue().once('value').then(() => {});
-  db.ref('favorites/' + uid + '/gifs').once('value').then(snap => {
-    const all = snap.val() || {};
-    const existingKey = Object.keys(all).find(k => all[k].url === url);
-    if (existingKey) db.ref('favorites/' + uid + '/gifs/' + existingKey).remove();
-    else db.ref('favorites/' + uid + '/gifs').push({ url, preview });
-  });
 }
 function loadFavoriteGifs() {
   const grid = document.getElementById('gifGrid');
   if (!grid) return;
-  grid.innerHTML = '<div style="padding:8px;color:#777;">Loading...</div>';
-  db.ref('favorites/' + uid + '/gifs').once('value').then(snap => {
-    const all = snap.val() || {};
-    grid.innerHTML = '';
-    const keys = Object.keys(all);
-    if (!keys.length) { grid.innerHTML = '<div style="padding:8px;color:#777;">No favorites yet — right-click a GIF in Search to favorite it.</div>'; return; }
-    keys.forEach(k => {
-      const img = document.createElement('img');
-      img.src = all[k].preview || all[k].url;
-      img.onclick = () => sendGif(all[k].url);
-      img.oncontextmenu = e => { e.preventDefault(); toggleFavoriteGif(all[k].url, all[k].preview); loadFavoriteGifs(); };
-      grid.appendChild(img);
-    });
-  });
+  grid.innerHTML = '';
+  const keys = Object.keys(favoritesCache);
+  if (!keys.length) { grid.innerHTML = '<div style="padding:8px;color:#777;">No favorites yet — hover a GIF and click the star to favorite it.</div>'; return; }
+  keys.forEach(k => grid.appendChild(buildGifTile(favoritesCache[k].url, favoritesCache[k].preview || favoritesCache[k].url)));
+  grid.insertAdjacentHTML('beforeend', `<div class="gifEnd">That's all the gifs for the search :(</div>`);
 }
 
 /* ---------- Sending + spam control ---------- */
