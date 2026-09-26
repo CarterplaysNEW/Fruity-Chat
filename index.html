@@ -128,6 +128,10 @@
   #pingPanel .empty { padding:8px; color:#777; }
 
   #overlay, #frugoOverlay, #dirOverlay, #adminTagOverlay, #serverSettingsOverlay, #supportOverlay, #ticketsOverlay, #projectWizardOverlay, #projectViewOverlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.4); align-items:center; justify-content:center; z-index:10; }
+  #projectPlayerOverlay { display:none; position:fixed; inset:0; background:#000; z-index:55; flex-direction:column; }
+  #projectPlayerBar { display:flex; justify-content:space-between; align-items:center; background:var(--face); padding:4px 8px; }
+  #projectPlayerFrame { flex:1; border:none; background:#fff; }
+  .projEditBtn { cursor:pointer; }
   #profileCard { width:260px; }
   #profileCard .banner { width:100%; height:70px; object-fit:cover; background:#000080; display:block; }
   #profileCard .avatarWrap { margin:-24px 0 0 10px; }
@@ -536,6 +540,11 @@
     <div class="titlebar"><span>Project</span><span class="x" id="closePv">✕</span></div>
     <div style="padding:14px;" id="pvBody"></div>
   </div>
+</div>
+
+<div id="projectPlayerOverlay">
+  <div id="projectPlayerBar"><span>Playing project</span><button id="closeProjectPlayer">✕ Close</button></div>
+  <iframe id="projectPlayerFrame" src="about:blank"></iframe>
 </div>
 
 <div id="adminTagOverlay">
@@ -2093,18 +2102,24 @@ document.getElementById('tagClearBtn').onclick = () => {
 
 /* ---------- Projects (user-uploaded HTML apps) ---------- */
 let projectsCache = {};
-let pwState = { file: null, name: '', desc: '', minAge: 13 };
+let pwState = { file: null, name: '', desc: '', minAge: 13, icon: null, editKey: null };
+let projectSearchTerm = '';
 db.ref('projects').on('value', snap => { projectsCache = snap.val() || {}; renderProjectsList(); });
+document.getElementById('projectSearchInput').oninput = e => { projectSearchTerm = e.target.value.toLowerCase(); renderProjectsList(); };
 function renderProjectsList() {
   const list = document.getElementById('projectsList');
   list.innerHTML = '';
-  const keys = Object.keys(projectsCache).sort((a, b) => (projectsCache[b].ts || 0) - (projectsCache[a].ts || 0));
+  let keys = Object.keys(projectsCache).sort((a, b) => (projectsCache[b].ts || 0) - (projectsCache[a].ts || 0));
+  if (projectSearchTerm) keys = keys.filter(k => projectsCache[k].name.toLowerCase().includes(projectSearchTerm));
   keys.forEach(k => {
     const p = projectsCache[k];
     const div = document.createElement('div');
     div.className = 'navitem';
-    div.innerHTML = `<span class="left">🗂️ ${escapeHtml(p.name)}</span>`;
-    div.onclick = () => openProjectView(k);
+    const icon = p.icon ? `<img src="${p.icon}" style="width:16px;height:16px;">` : '🗂️';
+    const canEdit = p.uploaderUid === uid || isAdmin();
+    div.innerHTML = `<span class="left">${icon} ${escapeHtml(p.name)}</span>${canEdit ? '<span class="projEditBtn" title="Update project">➕</span>' : ''}`;
+    div.querySelector('.left').onclick = () => openProjectView(k);
+    if (canEdit) div.querySelector('.projEditBtn').onclick = e => { e.stopPropagation(); openEditProject(k); };
     list.appendChild(div);
   });
 }
@@ -2112,26 +2127,39 @@ function openProjectView(key) {
   const p = projectsCache[key];
   if (!p) return;
   document.getElementById('pvBody').innerHTML = `
+    ${p.icon ? `<img src="${p.icon}" style="width:32px;height:32px;">` : ''}
     <p><b>${escapeHtml(p.name)}</b></p>
     <p style="font-size:11px;">${escapeHtml(p.description || 'No description.')}</p>
     <p style="font-size:11px;color:#777;">By ${escapeHtml(p.uploaderName || 'Unknown')} · Ages ${p.minAge}+</p>
-    <a href="${p.fileUrl}" target="_blank"><button style="width:100%;margin-top:6px;">Open Project</button></a>`;
+    <button id="pvPlayBtn" style="width:100%;margin-top:6px;">▶ Play Project</button>`;
+  document.getElementById('pvPlayBtn').onclick = () => openProjectPlayer(p.fileUrl);
   document.getElementById('projectViewOverlay').style.display = 'flex';
 }
+function openProjectPlayer(fileUrl) {
+  document.getElementById('projectPlayerFrame').src = fileUrl;
+  document.getElementById('projectPlayerOverlay').style.display = 'flex';
+}
+document.getElementById('closeProjectPlayer').onclick = () => { document.getElementById('projectPlayerOverlay').style.display = 'none'; document.getElementById('projectPlayerFrame').src = 'about:blank'; };
 document.getElementById('closePv').onclick = () => document.getElementById('projectViewOverlay').style.display = 'none';
 
-document.getElementById('createProjectBtn').onclick = () => { pwState = { file: null, name: '', desc: '', minAge: 13 }; showPwStep(1); };
+document.getElementById('createProjectBtn').onclick = () => { pwState = { file: null, name: '', desc: '', minAge: 13, icon: null, editKey: null }; showPwStep(1); };
+function openEditProject(key) {
+  const p = projectsCache[key];
+  if (!p) return;
+  pwState = { file: null, name: p.name, desc: p.description || '', minAge: p.minAge || 13, icon: p.icon || null, editKey: key, existingFileUrl: p.fileUrl };
+  showPwStep(1);
+}
 document.getElementById('closePw').onclick = () => document.getElementById('projectWizardOverlay').style.display = 'none';
 function showPwStep(step) {
-  document.getElementById('pwTitle').textContent = `Create Project — Step ${step}`;
+  document.getElementById('pwTitle').textContent = (pwState.editKey ? 'Update Project' : 'Create Project') + ` — Step ${step}`;
   const body = document.getElementById('pwBody');
   if (step === 1) {
     body.innerHTML = `
-      <p>Add a HTML</p>
+      <p>Add a HTML${pwState.editKey ? ' (optional — leave blank to keep the current file)' : ''}</p>
       <input type="file" id="pwFileInput" accept=".html,text/html" style="display:none;">
       <button id="pwOpenFilesBtn" style="width:100%;">Open Files</button>
-      <p id="pwFileName" style="font-size:11px;margin-top:6px;"></p>
-      <button id="pwNext1" style="width:100%;margin-top:10px;" disabled>Next</button>`;
+      <p id="pwFileName" style="font-size:11px;margin-top:6px;">${pwState.file ? 'Selected: ' + pwState.file.name : ''}</p>
+      <button id="pwNext1" style="width:100%;margin-top:10px;" ${(pwState.file || pwState.editKey) ? '' : 'disabled'}>Next</button>`;
     document.getElementById('pwOpenFilesBtn').onclick = () => document.getElementById('pwFileInput').click();
     document.getElementById('pwFileInput').onchange = e => {
       const f = e.target.files[0];
@@ -2147,7 +2175,10 @@ function showPwStep(step) {
       <input type="text" id="pwNameInput" maxlength="40" value="${escapeHtml(pwState.name)}">
       <label style="margin-top:6px;display:block;">Add a description (Optional)</label>
       <textarea id="pwDescInput" style="width:100%;height:50px;">${escapeHtml(pwState.desc)}</textarea>
+      <label style="margin-top:6px;display:block;">Add Icon (Optional)</label>
+      <input type="file" id="pwIconInput" accept="image/*">
       <button id="pwNext2" style="width:100%;margin-top:10px;">Next</button>`;
+    document.getElementById('pwIconInput').onchange = e => { if (e.target.files[0]) pwState.iconFile = e.target.files[0]; };
     document.getElementById('pwNext2').onclick = () => {
       const name = document.getElementById('pwNameInput').value.trim();
       if (!name) { alert('Give your project a name.'); return; }
@@ -2160,7 +2191,7 @@ function showPwStep(step) {
       <p>Before you publish the project, what ages is it for?</p>
       <label>Minimum age (10–55)</label>
       <input type="number" id="pwAgeInput" min="10" max="55" value="${pwState.minAge}">
-      <button id="pwPublishBtn" style="width:100%;margin-top:10px;">Publish</button>
+      <button id="pwPublishBtn" style="width:100%;margin-top:10px;">${pwState.editKey ? 'Save Changes' : 'Publish'}</button>
       <p id="pwErr" class="err"></p>`;
     document.getElementById('pwPublishBtn').onclick = async () => {
       const age = Math.min(55, Math.max(10, parseInt(document.getElementById('pwAgeInput').value) || 13));
@@ -2168,8 +2199,13 @@ function showPwStep(step) {
       const errEl = document.getElementById('pwErr');
       document.getElementById('pwPublishBtn').disabled = true;
       try {
-        const fileUrl = await uploadBlob(pwState.file, `projects/${uid}_${Date.now()}_${pwState.file.name}`, pct => { errEl.style.color = ''; errEl.textContent = `Publishing... ${pct}%`; });
-        db.ref('projects').push({ name: pwState.name, description: pwState.desc, minAge: age, fileUrl, uploaderUid: uid, uploaderName: profile.name, ts: firebase.database.ServerValue.TIMESTAMP });
+        let fileUrl = pwState.existingFileUrl || null;
+        if (pwState.file) fileUrl = await uploadBlob(pwState.file, `projects/${uid}_${Date.now()}_${pwState.file.name}`, pct => { errEl.style.color = ''; errEl.textContent = `Publishing... ${pct}%`; });
+        let iconUrl = pwState.icon || null;
+        if (pwState.iconFile) iconUrl = await uploadBlob(pwState.iconFile, `projectIcons/${uid}_${Date.now()}_${pwState.iconFile.name}`);
+        const record = { name: pwState.name, description: pwState.desc, minAge: age, fileUrl, icon: iconUrl, uploaderUid: uid, uploaderName: profile.name, ts: firebase.database.ServerValue.TIMESTAMP };
+        if (pwState.editKey) db.ref('projects/' + pwState.editKey).update(record);
+        else db.ref('projects').push(record);
         document.getElementById('projectWizardOverlay').style.display = 'none';
       } catch (e) {
         errEl.style.color = '#a00'; errEl.textContent = 'Publish failed: ' + e.message;
