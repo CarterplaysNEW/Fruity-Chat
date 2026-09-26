@@ -127,7 +127,7 @@
   #pingPanel .pingItem b { display:block; }
   #pingPanel .empty { padding:8px; color:#777; }
 
-  #overlay, #frugoOverlay, #dirOverlay, #adminTagOverlay, #serverSettingsOverlay, #supportOverlay, #ticketsOverlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.4); align-items:center; justify-content:center; z-index:10; }
+  #overlay, #frugoOverlay, #dirOverlay, #adminTagOverlay, #serverSettingsOverlay, #supportOverlay, #ticketsOverlay, #projectWizardOverlay, #projectViewOverlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.4); align-items:center; justify-content:center; z-index:10; }
   #profileCard { width:260px; }
   #profileCard .banner { width:100%; height:70px; object-fit:cover; background:#000080; display:block; }
   #profileCard .avatarWrap { margin:-24px 0 0 10px; }
@@ -192,6 +192,14 @@
   #emojiPickerPanel span.faceEmoticon { font-size:13px; font-family:monospace; border:1px solid #ccc; padding:1px 4px; border-radius:3px; }
   .attachWrap { margin-top:3px; }
   .attachImg { max-width:220px; max-height:220px; display:block; border:1px solid var(--face-dark); cursor:pointer; }
+  .customAudio { display:flex; align-items:center; gap:4px; background:var(--face); border:1px solid var(--face-dark); padding:4px 6px; border-radius:3px; position:relative; width:260px; }
+  .customAudio button { padding:1px 5px; font-size:11px; }
+  .customAudio .caSeek { flex:1; min-width:40px; }
+  .customAudio .caVol { width:50px; }
+  .customAudio .caTime, .customAudio .caDuration { font-size:10px; color:#555; width:30px; }
+  .customAudio .caMenu { display:none; position:absolute; top:100%; right:0; background:#fff; border:1px solid #888; z-index:10; }
+  .customAudio .caMenuItem { padding:4px 8px; font-size:11px; cursor:pointer; white-space:nowrap; }
+  .customAudio .caMenuItem:hover { background:#eef; }
   #imgLightboxOverlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.85); z-index:50; align-items:center; justify-content:center; cursor:zoom-out; }
   #imgLightboxImg { max-width:95%; max-height:95%; }
   #attachPreviewBar { display:none; align-items:center; gap:6px; padding:4px 6px; background:var(--face); border-top:1px solid var(--face-dark); }
@@ -383,6 +391,9 @@
       <div class="sechdr">Servers</div>
       <div id="serverList"></div>
       <div class="navitem" id="newServerBtn"><span class="left">+ New Server</span></div>
+      <div class="sechdr">Projects</div>
+      <div class="navitem" id="createProjectBtn"><span class="left">+ Create Project</span></div>
+      <div id="projectsList"></div>
     </div>
     <div id="main">
       <div id="mainCenter">
@@ -504,6 +515,20 @@
   <div class="win" style="width:340px;">
     <div class="titlebar"><span>Support Tickets</span><span class="x" id="closeTickets">✕</span></div>
     <div style="padding:10px;max-height:60vh;overflow-y:auto;" id="ticketsBody"></div>
+  </div>
+</div>
+
+<div id="projectWizardOverlay">
+  <div class="win" style="width:340px;">
+    <div class="titlebar"><span id="pwTitle">Create Project — Step 1</span><span class="x" id="closePw">✕</span></div>
+    <div style="padding:14px;" id="pwBody"></div>
+  </div>
+</div>
+
+<div id="projectViewOverlay">
+  <div class="win" style="width:320px;">
+    <div class="titlebar"><span>Project</span><span class="x" id="closePv">✕</span></div>
+    <div style="padding:14px;" id="pvBody"></div>
   </div>
 </div>
 
@@ -773,15 +798,18 @@ document.getElementById('enterBtn').onclick = async () => {
     return;
   }
   if (taken) { errEl.textContent = 'That username is already taken.'; document.getElementById('enterBtn').disabled = false; return; }
-  let avatarUrl = DEFAULT_AVATAR, bannerUrl = DEFAULT_BANNER;
-  try {
-    if (avatarCropper.hasImage()) avatarUrl = await uploadDataUrl(avatarCropper.getResult(96, 96), `avatars/${uid}_${Date.now()}.png`);
-    if (bannerCropper.hasImage()) bannerUrl = await uploadDataUrl(bannerCropper.getResult(300, 80), `banners/${uid}_${Date.now()}.png`);
-  } catch (e) {
-    errEl.textContent = 'Image upload failed — check your Storage rules are open. Saving without new images.';
-    avatarUrl = (formMode === 'edit' && profile.avatar) ? profile.avatar : DEFAULT_AVATAR;
-    bannerUrl = (formMode === 'edit' && profile.banner) ? profile.banner : DEFAULT_BANNER;
+  let avatarUrl = (formMode === 'edit' && profile.avatar) ? profile.avatar : DEFAULT_AVATAR;
+  let bannerUrl = (formMode === 'edit' && profile.banner) ? profile.banner : DEFAULT_BANNER;
+  const uploadErrors = [];
+  if (avatarCropper.hasImage()) {
+    try { avatarUrl = await uploadDataUrl(avatarCropper.getResult(96, 96), `avatars/${uid}_${Date.now()}.png`); }
+    catch (e) { uploadErrors.push('Avatar: ' + e.message); }
   }
+  if (bannerCropper.hasImage()) {
+    try { bannerUrl = await uploadDataUrl(bannerCropper.getResult(300, 80), `banners/${uid}_${Date.now()}.png`); }
+    catch (e) { uploadErrors.push('Banner: ' + e.message); }
+  }
+  if (uploadErrors.length) errEl.textContent = uploadErrors.join(' | ');
   document.getElementById('enterBtn').disabled = false;
   profile = {
     name,
@@ -1197,7 +1225,8 @@ function addMessage(m, key, prepend) {
     targetRef.on('value', existHandler);
     activeReactionListeners.push({ ref: targetRef, handler: existHandler });
   }
-  if (m.attachment) renderAttachment(row.querySelector('.msgBody'), m.attachment);
+  const atts = m.attachments || (m.attachment ? [m.attachment] : []);
+  atts.forEach(a => renderAttachment(row.querySelector('.msgBody'), a));
   if (prepend) { box.insertBefore(row, box.firstChild); }
   else { box.appendChild(row); box.scrollTop = box.scrollHeight; }
 }
@@ -1391,31 +1420,86 @@ function renderAttachment(container, a) {
     const v = document.createElement('video'); v.src = a.url; v.controls = true; v.className = 'attachImg';
     wrap.appendChild(v);
   } else if (type.startsWith('audio/')) {
-    const au = document.createElement('audio'); au.src = a.url; au.controls = true;
-    wrap.appendChild(au);
+    wrap.appendChild(buildCustomAudioPlayer(a.url, a.name || 'audio'));
   } else {
     const link = document.createElement('a'); link.href = a.url; link.target = '_blank'; link.textContent = '📎 ' + (a.name || 'file');
     wrap.appendChild(link);
   }
   container.appendChild(wrap);
 }
-function attachLimitBytes() { return hasFrugo(uid) ? 700 * 1024 * 1024 : 300 * 1024 * 1024; }
-let pendingAttachment = null;
+function buildCustomAudioPlayer(url, name) {
+  const audio = new Audio(url);
+  const box = document.createElement('div');
+  box.className = 'customAudio';
+  box.innerHTML = `
+    <button class="caPlayBtn">▶️</button>
+    <span class="caTime">0:00</span>
+    <input type="range" class="caSeek" min="0" max="100" value="0">
+    <span class="caDuration">0:00</span>
+    <button class="caVolBtn">🔊</button>
+    <input type="range" class="caVol" min="0" max="100" value="100">
+    <button class="caMenuBtn">⋯</button>
+    <div class="caMenu"><div class="caMenuItem">Download audio</div></div>`;
+  const playBtn = box.querySelector('.caPlayBtn');
+  const seek = box.querySelector('.caSeek');
+  const timeEl = box.querySelector('.caTime');
+  const durEl = box.querySelector('.caDuration');
+  const volBtn = box.querySelector('.caVolBtn');
+  const vol = box.querySelector('.caVol');
+  const menuBtn = box.querySelector('.caMenuBtn');
+  const menu = box.querySelector('.caMenu');
+  const fmt = s => { if (!isFinite(s)) return '0:00'; const m = Math.floor(s / 60), sec = Math.floor(s % 60); return m + ':' + String(sec).padStart(2, '0'); };
+  audio.addEventListener('loadedmetadata', () => { durEl.textContent = fmt(audio.duration); });
+  audio.addEventListener('timeupdate', () => { if (!seek.dragging) seek.value = (audio.currentTime / (audio.duration || 1)) * 100; timeEl.textContent = fmt(audio.currentTime); });
+  audio.addEventListener('ended', () => { playBtn.textContent = '▶️'; });
+  playBtn.onclick = () => { if (audio.paused) { audio.play(); playBtn.textContent = '⏸️'; } else { audio.pause(); playBtn.textContent = '▶️'; } };
+  seek.oninput = () => { audio.currentTime = (seek.value / 100) * (audio.duration || 0); };
+  vol.oninput = () => { audio.volume = vol.value / 100; volBtn.textContent = vol.value == 0 ? '🔇' : '🔊'; };
+  volBtn.onclick = () => { audio.muted = !audio.muted; volBtn.textContent = audio.muted ? '🔇' : '🔊'; };
+  menuBtn.onclick = e => { e.stopPropagation(); menu.style.display = menu.style.display === 'block' ? 'none' : 'block'; };
+  box.querySelector('.caMenuItem').onclick = () => {
+    const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    menu.style.display = 'none';
+  };
+  document.addEventListener('click', () => { menu.style.display = 'none'; });
+  return box;
+}
+function maxFilesAllowed() { return hasFrugo(uid) ? 10 : 5; }
+function fileTypeLimitBytes(file) {
+  if (file.type.startsWith('video/')) return 100 * 1024 * 1024;
+  return 10 * 1024 * 1024; // Cloudinary free plan: images and other files capped at 10MB
+}
+function fileTypeLimitLabel(file) { return file.type.startsWith('video/') ? '100MB' : '10MB'; }
+let pendingAttachments = [];
+document.getElementById('attachInput').multiple = true;
 document.getElementById('attachBtn').onclick = () => document.getElementById('attachInput').click();
-function setPendingAttachment(file) {
-  if (!file) return;
-  if (file.size > attachLimitBytes()) { alert(`File too large — limit is ${hasFrugo(uid) ? '700MB' : '300MB'}.`); return; }
-  pendingAttachment = file;
+function addPendingFiles(fileList) {
+  const files = Array.from(fileList);
+  for (const file of files) {
+    if (pendingAttachments.length >= maxFilesAllowed()) { alert(`You can attach up to ${maxFilesAllowed()} files per message${hasFrugo(uid) ? '' : ' (10 with Frugo)'}.`); break; }
+    if (file.size > fileTypeLimitBytes(file)) { alert(`"${file.name}" is too large — the limit is ${fileTypeLimitLabel(file)} for this file type (Cloudinary's free plan limit).`); continue; }
+    pendingAttachments.push(file);
+  }
+  renderAttachPreviewBar();
+}
+function setPendingAttachment(file) { if (file) addPendingFiles([file]); }
+function renderAttachPreviewBar() {
   const bar = document.getElementById('attachPreviewBar');
   bar.innerHTML = '';
-  if (file.type.startsWith('image/')) { const img = document.createElement('img'); img.src = URL.createObjectURL(file); bar.appendChild(img); }
-  const label = document.createElement('span'); label.textContent = `${file.name} (${Math.round(file.size / 1024)} KB)`;
-  const removeBtn = document.createElement('button'); removeBtn.textContent = '✕ Remove';
-  removeBtn.onclick = () => { pendingAttachment = null; bar.style.display = 'none'; document.getElementById('attachInput').value = ''; };
-  bar.appendChild(label); bar.appendChild(removeBtn);
+  if (!pendingAttachments.length) { bar.style.display = 'none'; return; }
+  pendingAttachments.forEach((file, idx) => {
+    const item = document.createElement('span');
+    item.style.cssText = 'display:inline-flex;align-items:center;gap:3px;border:1px solid var(--face-dark);padding:2px 4px;margin-right:4px;';
+    if (file.type.startsWith('image/')) { const img = document.createElement('img'); img.src = URL.createObjectURL(file); item.appendChild(img); }
+    const label = document.createElement('span'); label.textContent = `${file.name} (${Math.round(file.size / 1024)}KB)`;
+    const removeBtn = document.createElement('button'); removeBtn.textContent = '✕';
+    removeBtn.onclick = () => { pendingAttachments.splice(idx, 1); renderAttachPreviewBar(); };
+    item.appendChild(label); item.appendChild(removeBtn);
+    bar.appendChild(item);
+  });
   bar.style.display = 'flex';
 }
-document.getElementById('attachInput').onchange = e => { setPendingAttachment(e.target.files[0]); };
+document.getElementById('attachInput').onchange = e => { addPendingFiles(e.target.files); document.getElementById('attachInput').value = ''; };
 
 /* Drag-and-drop files onto the chat window */
 const dropZone = document.getElementById('chat');
@@ -1432,8 +1516,7 @@ dropZone.addEventListener('drop', async e => {
     const entry = items[0].webkitGetAsEntry();
     if (entry && entry.isDirectory) { alert("Folders can't be attached directly — drop the file(s) inside it instead."); return; }
   }
-  const file = e.dataTransfer.files[0];
-  if (file) setPendingAttachment(file);
+  if (e.dataTransfer.files.length) addPendingFiles(e.dataTransfer.files);
 });
 
 /* ---------- GIF picker (GIPHY) ---------- */
@@ -1449,13 +1532,54 @@ function renderGifPanel() {
     <div class="gifTabs">
       <button class="frugoTab${gifTab === 'search' ? ' active' : ''}" id="gifTabSearch">Search</button>
       <button class="frugoTab${gifTab === 'fav' ? ' active' : ''}" id="gifTabFav">⭐ Favorites</button>
+      <button class="frugoTab${gifTab === 'user' ? ' active' : ''}" id="gifTabUser">User-Uploaded</button>
     </div>
+    <button id="createGifBtn" style="display:none;width:100%;margin-top:4px;">+ Create GIF</button>
+    <input type="file" id="createGifInput" accept=".gif,image/gif" style="display:none;">
     <div class="gifGrid" id="gifGrid"></div>`;
   document.getElementById('gifTabSearch').onclick = () => { gifTab = 'search'; renderGifPanel(); };
   document.getElementById('gifTabFav').onclick = () => { gifTab = 'fav'; renderGifPanel(); loadFavoriteGifs(); };
+  document.getElementById('gifTabUser').onclick = () => { gifTab = 'user'; renderGifPanel(); loadUserGifs(); };
   const input = document.getElementById('gifSearchInput');
-  input.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); searchGifs(input.value); } };
+  input.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); gifTab === 'user' ? loadUserGifs(input.value) : searchGifs(input.value); } };
   if (gifTab === 'fav') loadFavoriteGifs();
+  if (gifTab === 'user') {
+    document.getElementById('createGifBtn').style.display = 'block';
+    document.getElementById('createGifBtn').onclick = () => document.getElementById('createGifInput').click();
+    document.getElementById('createGifInput').onchange = e => { if (e.target.files[0]) startGifUpload(e.target.files[0]); };
+    loadUserGifs();
+  }
+}
+async function startGifUpload(file) {
+  const gifName = prompt('Name this GIF so people can find it:', file.name.replace(/\.gif$/i, ''));
+  if (!gifName) return;
+  const grid = document.getElementById('gifGrid');
+  grid.innerHTML = '<div style="padding:8px;color:#777;">Uploading...</div>';
+  try {
+    const url = await uploadBlob(file, `userGifs/${uid}_${Date.now()}_${file.name}`);
+    await db.ref('userGifs').push({ name: gifName, url, uploaderUid: uid, uploaderName: profile.name, ts: firebase.database.ServerValue.TIMESTAMP });
+    loadUserGifs();
+  } catch (e) {
+    grid.innerHTML = `<div style="padding:8px;color:#c00;">Upload failed: ${escapeHtml(e.message)}</div>`;
+  }
+}
+function loadUserGifs(searchTerm) {
+  const grid = document.getElementById('gifGrid');
+  if (!grid) return;
+  grid.innerHTML = '<div style="padding:8px;color:#777;">Loading...</div>';
+  db.ref('userGifs').once('value').then(snap => {
+    const all = snap.val() || {};
+    let keys = Object.keys(all).sort((a, b) => (all[b].ts || 0) - (all[a].ts || 0));
+    if (searchTerm) keys = keys.filter(k => all[k].name.toLowerCase().includes(searchTerm.toLowerCase()));
+    grid.innerHTML = '';
+    if (!keys.length) { grid.innerHTML = '<div style="padding:8px;color:#777;">No user-uploaded GIFs yet.</div>'; return; }
+    keys.forEach(k => {
+      const img = document.createElement('img');
+      img.src = all[k].url; img.title = all[k].name;
+      img.onclick = () => sendGif(all[k].url);
+      grid.appendChild(img);
+    });
+  });
 }
 async function searchGifs(query) {
   const grid = document.getElementById('gifGrid');
@@ -1533,7 +1657,7 @@ function autoGrowInput() {
 async function trySend() {
   const input = document.getElementById('msgInput');
   const text = input.value.trim();
-  if (!text && !pendingAttachment) return;
+  if (!text && !pendingAttachments.length) return;
   if (text.startsWith('/')) { handleCommand(text); input.value = ''; autoGrowInput(); return; }
   const limit = hasFrugo(uid) ? 2500 : 1500;
   if (text.length > limit) { setStatus(`Message too long (max ${limit} characters).`, true); setTimeout(() => setStatus('', false), 2500); return; }
@@ -1553,29 +1677,31 @@ async function trySend() {
   }
   strikeCount = 0;
   nextAllowed = now + 500;
-  let attachmentData = null;
-  if (pendingAttachment) {
-    const file = pendingAttachment;
+  let attachmentsData = [];
+  if (pendingAttachments.length) {
     document.getElementById('sendBtn').disabled = true;
-    setStatus('Uploading attachment... 0%', false);
-    try {
-      const path = `attachments/${uid}_${Date.now()}_${file.name}`;
-      const url = await uploadBlob(file, path, pct => setStatus(`Uploading attachment... ${pct}%`, false));
-      attachmentData = { url, type: file.type || 'application/octet-stream', name: file.name };
-    } catch (e) {
-      setStatus('Attachment upload failed: ' + e.message, true);
-      document.getElementById('sendBtn').disabled = false;
-      return;
+    for (let i = 0; i < pendingAttachments.length; i++) {
+      const file = pendingAttachments[i];
+      setStatus(`Uploading ${i + 1}/${pendingAttachments.length}: 0%`, false);
+      try {
+        const path = `attachments/${uid}_${Date.now()}_${file.name}`;
+        const url = await uploadBlob(file, path, pct => setStatus(`Uploading ${i + 1}/${pendingAttachments.length}: ${pct}%`, false));
+        attachmentsData.push({ url, type: file.type || 'application/octet-stream', name: file.name });
+      } catch (e) {
+        setStatus(`Upload failed on "${file.name}": ` + e.message, true);
+        document.getElementById('sendBtn').disabled = false;
+        return;
+      }
     }
     setStatus('', false);
     document.getElementById('sendBtn').disabled = false;
-    pendingAttachment = null; document.getElementById('attachPreviewBar').style.display = 'none'; document.getElementById('attachInput').value = '';
+    pendingAttachments = []; renderAttachPreviewBar(); document.getElementById('attachInput').value = '';
   }
   const mentions = extractMentions(text);
   if (replyContext && replyContext.uid !== uid && !mentions.includes(replyContext.uid)) mentions.push(replyContext.uid);
   const payload = { uid, text, ts: firebase.database.ServerValue.TIMESTAMP, mentions };
   if (replyContext) payload.replyTo = { key: replyContext.key, uid: replyContext.uid, name: replyContext.name, text: replyContext.text };
-  if (attachmentData) payload.attachment = attachmentData;
+  if (attachmentsData.length) payload.attachments = attachmentsData;
   getConvoRef(currentView).push(payload);
   if (!currentView.startsWith('srv:') && currentView !== 'main') { lastActivity[currentView] = Date.now(); renderDMList(); }
   input.value = ''; autoGrowInput();
@@ -1915,6 +2041,95 @@ document.getElementById('tagClearBtn').onclick = () => {
   db.ref('customTags/' + id).remove();
   document.getElementById('tagTextInput').value = ''; document.getElementById('tagEmojiInput').value = '';
 };
+
+/* ---------- Projects (user-uploaded HTML apps) ---------- */
+let projectsCache = {};
+let pwState = { file: null, name: '', desc: '', minAge: 13 };
+db.ref('projects').on('value', snap => { projectsCache = snap.val() || {}; renderProjectsList(); });
+function renderProjectsList() {
+  const list = document.getElementById('projectsList');
+  list.innerHTML = '';
+  const keys = Object.keys(projectsCache).sort((a, b) => (projectsCache[b].ts || 0) - (projectsCache[a].ts || 0));
+  keys.forEach(k => {
+    const p = projectsCache[k];
+    const div = document.createElement('div');
+    div.className = 'navitem';
+    div.innerHTML = `<span class="left">🗂️ ${escapeHtml(p.name)}</span>`;
+    div.onclick = () => openProjectView(k);
+    list.appendChild(div);
+  });
+}
+function openProjectView(key) {
+  const p = projectsCache[key];
+  if (!p) return;
+  document.getElementById('pvBody').innerHTML = `
+    <p><b>${escapeHtml(p.name)}</b></p>
+    <p style="font-size:11px;">${escapeHtml(p.description || 'No description.')}</p>
+    <p style="font-size:11px;color:#777;">By ${escapeHtml(p.uploaderName || 'Unknown')} · Ages ${p.minAge}+</p>
+    <a href="${p.fileUrl}" target="_blank"><button style="width:100%;margin-top:6px;">Open Project</button></a>`;
+  document.getElementById('projectViewOverlay').style.display = 'flex';
+}
+document.getElementById('closePv').onclick = () => document.getElementById('projectViewOverlay').style.display = 'none';
+
+document.getElementById('createProjectBtn').onclick = () => { pwState = { file: null, name: '', desc: '', minAge: 13 }; showPwStep(1); };
+document.getElementById('closePw').onclick = () => document.getElementById('projectWizardOverlay').style.display = 'none';
+function showPwStep(step) {
+  document.getElementById('pwTitle').textContent = `Create Project — Step ${step}`;
+  const body = document.getElementById('pwBody');
+  if (step === 1) {
+    body.innerHTML = `
+      <p>Add a HTML</p>
+      <input type="file" id="pwFileInput" accept=".html,text/html" style="display:none;">
+      <button id="pwOpenFilesBtn" style="width:100%;">Open Files</button>
+      <p id="pwFileName" style="font-size:11px;margin-top:6px;"></p>
+      <button id="pwNext1" style="width:100%;margin-top:10px;" disabled>Next</button>`;
+    document.getElementById('pwOpenFilesBtn').onclick = () => document.getElementById('pwFileInput').click();
+    document.getElementById('pwFileInput').onchange = e => {
+      const f = e.target.files[0];
+      if (!f) return;
+      pwState.file = f;
+      document.getElementById('pwFileName').textContent = 'Selected: ' + f.name;
+      document.getElementById('pwNext1').disabled = false;
+    };
+    document.getElementById('pwNext1').onclick = () => showPwStep(2);
+  } else if (step === 2) {
+    body.innerHTML = `
+      <label>Name your project</label>
+      <input type="text" id="pwNameInput" maxlength="40" value="${escapeHtml(pwState.name)}">
+      <label style="margin-top:6px;display:block;">Add a description (Optional)</label>
+      <textarea id="pwDescInput" style="width:100%;height:50px;">${escapeHtml(pwState.desc)}</textarea>
+      <button id="pwNext2" style="width:100%;margin-top:10px;">Next</button>`;
+    document.getElementById('pwNext2').onclick = () => {
+      const name = document.getElementById('pwNameInput').value.trim();
+      if (!name) { alert('Give your project a name.'); return; }
+      pwState.name = name;
+      pwState.desc = document.getElementById('pwDescInput').value.trim();
+      showPwStep(3);
+    };
+  } else if (step === 3) {
+    body.innerHTML = `
+      <p>Before you publish the project, what ages is it for?</p>
+      <label>Minimum age (10–55)</label>
+      <input type="number" id="pwAgeInput" min="10" max="55" value="${pwState.minAge}">
+      <button id="pwPublishBtn" style="width:100%;margin-top:10px;">Publish</button>
+      <p id="pwErr" class="err"></p>`;
+    document.getElementById('pwPublishBtn').onclick = async () => {
+      const age = Math.min(55, Math.max(10, parseInt(document.getElementById('pwAgeInput').value) || 13));
+      pwState.minAge = age;
+      const errEl = document.getElementById('pwErr');
+      document.getElementById('pwPublishBtn').disabled = true;
+      try {
+        const fileUrl = await uploadBlob(pwState.file, `projects/${uid}_${Date.now()}_${pwState.file.name}`, pct => { errEl.style.color = ''; errEl.textContent = `Publishing... ${pct}%`; });
+        db.ref('projects').push({ name: pwState.name, description: pwState.desc, minAge: age, fileUrl, uploaderUid: uid, uploaderName: profile.name, ts: firebase.database.ServerValue.TIMESTAMP });
+        document.getElementById('projectWizardOverlay').style.display = 'none';
+      } catch (e) {
+        errEl.style.color = '#a00'; errEl.textContent = 'Publish failed: ' + e.message;
+        document.getElementById('pwPublishBtn').disabled = false;
+      }
+    };
+  }
+  document.getElementById('projectWizardOverlay').style.display = 'flex';
+}
 
 /* ---------- Frugo shop ---------- */
 document.getElementById('frugoBtn').onclick = () => { document.getElementById('frugoOverlay').style.display = 'flex'; switchFrugoTab('buy'); };
