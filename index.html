@@ -2966,6 +2966,44 @@ else { openForm('setup'); }
   };
 })();
 
+/* FC_EXTRAS3: Frugo next to Settings, Updater in Online list, auto-post updates, Esc closes windows */
+(function () {
+  const settingsBtn = document.getElementById('settingsBtn'), frugoBtn = document.getElementById('frugoBtn');
+  if (settingsBtn && frugoBtn) settingsBtn.parentNode.insertBefore(frugoBtn, settingsBtn);
+
+  /* Updater always shows in the Online list */
+  const BOT_AVATAR = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><rect width="96" height="96" fill="#5865f2"/><text x="48" y="66" font-size="52" text-anchor="middle">🤖</text></svg>');
+  const list = document.getElementById('onlineList');
+  function addBot() {
+    if (list.querySelector('#botRow')) return;
+    const d = document.createElement('div');
+    d.className = 'navitem'; d.id = 'botRow';
+    d.innerHTML = '<span class="left"><span class="statusDot online"></span><img src="' + BOT_AVATAR + '"><span>Updater</span><span style="background:#5865f2;color:#fff;font-size:9px;padding:0 4px;border-radius:3px;">BOT</span></span>';
+    d.onclick = () => switchView('updates');
+    list.insertBefore(d, list.firstChild);
+  }
+  new MutationObserver(addBot).observe(list, { childList: true });
+  addBot();
+
+  /* Updater posts the changelog by itself when a new version goes live (an admin has to open the site once) */
+  const SITE_VERSION = '1.6';
+  const SITE_LOG = '**Website Update — V1.6**\n\n• New Frugo styles: Roblox 2010, Windows 7 Aero, Terminal\n• New Frugo game: Speed Typing\n• Edit your own messages (pencil button)\n• Leaderboard 🏆, chat search 🔎, daily +10 🍹 bonus, mention sounds\n• Frugo holders get orange names\n• Projects can now have Files (images, sounds) and play in the window\n• GIFs load more as you scroll; GIF, image and project uploads fixed\n• VC screen share fixes';
+  setTimeout(() => {
+    if (!isAdmin()) return;
+    db.ref('meta/lastPostedVersion').once('value').then(s => {
+      if (s.val() === SITE_VERSION) return;
+      db.ref('meta/lastPostedVersion').set(SITE_VERSION);
+      db.ref('updates').push({ text: SITE_LOG, ts: firebase.database.ServerValue.TIMESTAMP });
+    }).catch(() => {});
+  }, 4000);
+
+  /* Esc closes pop-up windows */
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    ['overlay', 'frugoOverlay', 'dirOverlay', 'supportOverlay', 'ticketsOverlay', 'projectWizardOverlay', 'projectViewOverlay', 'serverSettingsOverlay', 'adminTagOverlay', 'imgLightboxOverlay'].forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
+  });
+})();
+
 </script>
 </body>
 </html>
