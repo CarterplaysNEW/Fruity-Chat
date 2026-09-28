@@ -1607,8 +1607,8 @@ document.getElementById('gifPickerPanel').onclick = e => e.stopPropagation();
 document.addEventListener('click', e => { if (!e.target.closest('#gifPickerPanel') && !e.target.closest('#gifBtn')) document.getElementById('gifPickerPanel').style.display = 'none'; });
 document.getElementById('gifPickerPanel').addEventListener('scroll', function () {
   if (this.scrollTop + this.clientHeight < this.scrollHeight - 40) return;
-  if (gifTab === 'search') searchGifs(gifSearchState.query, false);
-  else if (gifTab === 'user') loadUserGifs(userGifState.term, false);
+  if (gifTab === 'search') searchGifs(gifSearchState.query, true);
+  else if (gifTab === 'user') loadUserGifs(userGifState.term, true);
 });
 function renderGifPanel() {
   const panel = document.getElementById('gifPickerPanel');
@@ -1624,7 +1624,7 @@ function renderGifPanel() {
     <div class="gifGrid" id="gifGrid"></div>`;
   document.getElementById('gifTabSearch').onclick = () => { gifTab = 'search'; renderGifPanel(); };
   document.getElementById('gifTabFav').onclick = () => { gifTab = 'fav'; renderGifPanel(); loadFavoriteGifs(); };
-  document.getElementById('gifTabUser').onclick = () => { gifTab = 'user'; renderGifPanel(); loadUserGifs(); };
+  document.getElementById('gifTabUser').onclick = () => { gifTab = 'user'; renderGifPanel(); };
   const input = document.getElementById('gifSearchInput');
   input.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); gifTab === 'user' ? loadUserGifs(input.value) : searchGifs(input.value); } };
   if (gifTab === 'fav') loadFavoriteGifs();
@@ -1649,29 +1649,33 @@ async function startGifUpload(file) {
   }
 }
 let userGifState = { term: undefined, allKeys: [], shown: 0 };
+let userGifToken = 0;
 function loadUserGifs(searchTerm, append) {
   const grid = document.getElementById('gifGrid');
   if (!grid) return;
-  if (!append) {
-    userGifState = { term: searchTerm, allKeys: [], shown: 0 };
-    grid.innerHTML = '<div style="padding:8px;color:#777;">Loading...</div>';
+  const endMsg = '<div class="gifEnd">That\'s all the gifs for the search :(</div>';
+  if (append) {
+    const st = userGifState;
+    if (!st.allKeys || !st.allKeys.length || st.shown >= st.allKeys.length) return;
+    const keys = st.allKeys.slice(st.shown, st.shown + 10);
+    keys.forEach(k => { const g = st.all[k]; grid.appendChild(buildGifTile(g.url, g.url, { key: k, name: g.name, uploaderName: g.uploaderName, ts: g.ts })); });
+    st.shown += keys.length;
+    if (st.shown >= st.allKeys.length) grid.insertAdjacentHTML('beforeend', endMsg);
+    return;
   }
+  grid.innerHTML = '<div style="padding:8px;color:#777;">Loading...</div>';
+  const token = ++userGifToken;
   db.ref('userGifs').once('value').then(snap => {
+    const g2 = document.getElementById('gifGrid');
+    if (token !== userGifToken || !g2) return;
     const all = snap.val() || {};
-    if (!append) {
-      let keys = Object.keys(all).sort((a, b) => (all[b].ts || 0) - (all[a].ts || 0));
-      if (searchTerm) keys = keys.filter(k => all[k].name.toLowerCase().includes(searchTerm.toLowerCase()));
-      userGifState.allKeys = keys;
-      grid.innerHTML = '';
-      if (!keys.length) { grid.innerHTML = '<div style="padding:8px;color:#777;">No user-uploaded GIFs yet.</div>'; return; }
-    }
-    const batch = userGifState.allKeys.slice(userGifState.shown, userGifState.shown + 20);
-    batch.forEach(k => grid.appendChild(buildGifTile(all[k].url, all[k].url, { key: k, name: all[k].name, uploaderName: all[k].uploaderName, ts: all[k].ts })));
-    userGifState.shown += batch.length;
-    if (userGifState.shown >= userGifState.allKeys.length && userGifState.allKeys.length) {
-      grid.insertAdjacentHTML('beforeend', `<div class="gifEnd">That's all the gifs for the search :(</div>`);
-    }
-  });
+    let keys = Object.keys(all).filter(k => all[k] && all[k].url).sort((a, b) => (all[b].ts || 0) - (all[a].ts || 0));
+    if (searchTerm) keys = keys.filter(k => (all[k].name || '').toLowerCase().includes(searchTerm.toLowerCase()));
+    userGifState = { term: searchTerm, all, allKeys: keys, shown: 0 };
+    g2.innerHTML = '';
+    if (!keys.length) { g2.innerHTML = '<div style="padding:8px;color:#777;">No user-uploaded GIFs yet.</div>'; return; }
+    loadUserGifs(searchTerm, true);
+  }).catch(err => { grid.innerHTML = '<div style="padding:8px;color:#c00;">Could not load GIFs: ' + String(err.message).replace(/</g, '') + '</div>'; });
 }
 let gifSearchState = { query: '', offset: 0, loading: false, done: false };
 async function searchGifs(query, append) {
@@ -1686,7 +1690,7 @@ async function searchGifs(query, append) {
     gifSearchState.loading = true;
   }
   try {
-    const res = await fetch(`https://api.giphy.com/v1/gifs/search?api_key=${GIPHY_API_KEY}&q=${encodeURIComponent(gifSearchState.query)}&limit=15&offset=${gifSearchState.offset}&rating=pg-13`);
+    const res = await fetch(`https://api.giphy.com/v1/gifs/search?api_key=${GIPHY_API_KEY}&q=${encodeURIComponent(gifSearchState.query)}&limit=10&offset=${gifSearchState.offset}&rating=pg-13`);
     const data = await res.json();
     if (!res.ok) { grid.innerHTML = `<div style="padding:8px;color:#c00;">GIPHY error: ${escapeHtml((data.meta && data.meta.msg) || res.status)}</div>`; gifSearchState.loading = false; return; }
     if (!append) grid.innerHTML = '';
