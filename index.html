@@ -279,6 +279,38 @@
   body[data-theme="terminal"] .win { box-shadow:0 0 12px #0f0; }
   body[data-theme="terminal"] .navitem:hover, body[data-theme="terminal"] .navitem.active { color:#000; }
   body[data-theme="terminal"] input, body[data-theme="terminal"] textarea, body[data-theme="terminal"] select, body[data-theme="terminal"] button { color:#3dff3d; }
+
+  body[data-theme="yt2005"] {
+    --body-bg:#fff; --face:#f3f6fb; --face-dark:#9fb4d3; --face-light:#fff;
+    --titlebar-grad:linear-gradient(#ffffff,#d3e0f4); --titlebar-text:#0033cc;
+    --accent:#cc181e; --text:#222; --input-bg:#fff; --own-msg-bg:#eaf1fc; --font:Arial,Helvetica,sans-serif; --radius:3px; --mention-color:#0033cc;
+  }
+  body[data-theme="yt2005"] .win { border:1px solid #9fb4d3; box-shadow:0 1px 6px rgba(0,0,0,.25); }
+  body[data-theme="yt2005"] .titlebar { border-bottom:3px solid #cc181e; text-shadow:none; }
+  body[data-theme="myspace"] {
+    --body-bg:#b9d3ee; --face:#ffffff; --face-dark:#6699cc; --face-light:#dbe8f6;
+    --titlebar-grad:linear-gradient(#7aa9da,#5b8dc4); --titlebar-text:#fff;
+    --accent:#ff9933; --text:#123; --input-bg:#fff; --own-msg-bg:#fff0dc; --font:Verdana,Arial,sans-serif; --radius:0px; --mention-color:#e07b00;
+  }
+  body[data-theme="myspace"] .win { border:2px solid #6699cc; box-shadow:none; }
+  body[data-theme="geocities"] {
+    --body-bg:radial-gradient(#fff 1px,transparent 1.6px) 0 0/24px 24px,#000080; --face:#ffffb3; --face-dark:#ff00ff; --face-light:#00ffff;
+    --titlebar-grad:linear-gradient(90deg,#f00,#ff0,#0f0,#0ff,#00f,#f0f); --titlebar-text:#000;
+    --accent:#ff00ff; --text:#000080; --input-bg:#fff; --own-msg-bg:#ffe0ff; --font:'Comic Sans MS','Comic Sans',cursive; --radius:0px; --mention-color:#f00;
+  }
+  body[data-theme="geocities"] .win { border:3px ridge #ff00ff; box-shadow:none; }
+  body[data-theme="fb2008"] {
+    --body-bg:#d8dfea; --face:#ffffff; --face-dark:#bdc7d8; --face-light:#ffffff;
+    --titlebar-grad:#3b5998; --titlebar-text:#fff; --accent:#3b5998; --text:#333; --input-bg:#fff; --own-msg-bg:#edeff4;
+    --font:'Lucida Grande',Tahoma,Verdana,sans-serif; --radius:0px; --mention-color:#3b5998;
+  }
+  body[data-theme="fb2008"] .win { border:1px solid #3b5998; box-shadow:0 1px 4px rgba(0,0,0,.3); }
+  body[data-theme="aim"] {
+    --body-bg:#5b7fbf; --face:#fffbe0; --face-dark:#e0b000; --face-light:#fff8c0;
+    --titlebar-grad:linear-gradient(#ffe066,#f0b400); --titlebar-text:#3a2a00; --accent:#1e5fd6; --text:#222; --input-bg:#fff; --own-msg-bg:#e8f0ff;
+    --font:Arial,Helvetica,sans-serif; --radius:5px; --mention-color:#1e5fd6;
+  }
+  body[data-theme="aim"] .win { border:2px solid #e0b000; box-shadow:0 3px 10px rgba(0,0,0,.4); }
 </style>
 </head>
 <body>
@@ -318,10 +350,15 @@
           <option value="win10">Windows 10</option>
           <option value="arcade">Arcade</option>
           <option value="vapor">Vaporwave</option>
+          <option value="yt2005">YouTube 2005</option>
+          <option value="myspace">MySpace</option>
+          <option value="geocities">GeoCities</option>
           <optgroup label="🍹 Frugo Styles" id="frugoThemeGroup" style="display:none;">
             <option value="win01">Windows 0.1</option>
             <option value="vista">Windows Vista</option>
             <option value="me">Windows Me</option>
+            <option value="fb2008">Facebook 2008</option>
+            <option value="aim">AIM Buddy List</option>
             <option value="roblox">Roblox 2010</option>
             <option value="win7">Windows 7 Aero</option>
             <option value="terminal">Terminal</option>
@@ -723,7 +760,7 @@ db.ref('frugoStatus').on('value', snap => {
   const el = document.getElementById('msgInput'); if (el) el.maxLength = hasFrugo(uid) ? 2500 : 1500;
   const grp = document.getElementById('frugoThemeGroup');
   if (grp) grp.style.display = hasFrugo(uid) ? '' : 'none';
-  if (!hasFrugo(uid) && ['win01', 'vista', 'me', 'roblox', 'win7', 'terminal'].includes(document.body.dataset.theme)) applyTheme('98');
+  if (!hasFrugo(uid) && ['win01', 'vista', 'me', 'roblox', 'win7', 'terminal', 'fb2008', 'aim'].includes(document.body.dataset.theme)) applyTheme('98');
 });
 function refreshStatsDisplay() {
   const mine = statsCache[uid] || { points: 0, level: 0 };
@@ -2986,8 +3023,8 @@ else { openForm('setup'); }
   addBot();
 
   /* Updater posts the changelog by itself when a new version goes live (an admin has to open the site once) */
-  const SITE_VERSION = '1.6';
-  const SITE_LOG = '**Website Update — V1.6**\n\n• New Frugo styles: Roblox 2010, Windows 7 Aero, Terminal\n• New Frugo game: Speed Typing\n• Edit your own messages (pencil button)\n• Leaderboard 🏆, chat search 🔎, daily +10 🍹 bonus, mention sounds\n• Frugo holders get orange names\n• Projects can now have Files (images, sounds) and play in the window\n• GIFs load more as you scroll; GIF, image and project uploads fixed\n• VC screen share fixes';
+  const SITE_VERSION = '1.7';
+  const SITE_LOG = '**Website Update — V1.7**\n\n• New free styles: YouTube 2005, MySpace, GeoCities\n• New Frugo styles: Facebook 2008, AIM Buddy List, plus Roblox 2010, Windows 7 Aero, Terminal\n• Projects now show a Loading assets bar and have a Reload game button\n• Projects can have Files (images, sounds) - click a project name, then Files\n• New Updates channel with the Updater bot\n• Frugo button moved next to Settings, Esc closes windows';
   setTimeout(() => {
     if (!isAdmin()) return;
     db.ref('meta/lastPostedVersion').once('value').then(s => {
@@ -3002,6 +3039,66 @@ else { openForm('setup'); }
     if (e.key !== 'Escape') return;
     ['overlay', 'frugoOverlay', 'dirOverlay', 'supportOverlay', 'ticketsOverlay', 'projectWizardOverlay', 'projectViewOverlay', 'serverSettingsOverlay', 'adminTagOverlay', 'imgLightboxOverlay'].forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
   });
+})();
+
+/* FC_EXTRAS4: project loading screen + reload button */
+(function () {
+  let key = null, lastUrl = null, done = 0, total = 1, htmlDone = false, start = 0, tick = null, slowT = null, token = 0;
+  const _opv = openProjectView;
+  openProjectView = function (k) { key = k; _opv(k); };
+  const ov = document.getElementById('projectPlayerOverlay'), bar = document.getElementById('projectPlayerBar'), frame = document.getElementById('projectPlayerFrame');
+  const closeBtn = document.getElementById('closeProjectPlayer');
+  const right = document.createElement('div');
+  bar.appendChild(right);
+  const reloadBtn = document.createElement('button');
+  reloadBtn.textContent = '🔄 Reload game'; reloadBtn.style.marginRight = '6px';
+  right.appendChild(reloadBtn); right.appendChild(closeBtn);
+
+  const panel = document.createElement('div');
+  panel.style.cssText = 'display:none;position:absolute;left:0;right:0;bottom:0;background:#111;color:#fff;z-index:3;flex-direction:column;align-items:center;justify-content:center;gap:12px;font-family:Tahoma,sans-serif;';
+  panel.innerHTML = '<div style="font-size:18px;">Loading assets...</div><div style="width:60%;max-width:420px;height:16px;border:2px solid #fff;padding:2px;"><div id="pLoadFill" style="height:100%;width:0;background:#fff;transition:width .3s;"></div></div><div id="pLoadPct" style="font-size:12px;"></div><div id="pLoadSlow" style="display:none;text-align:center;font-size:13px;">This is taking longer than usual.<br></div>';
+  ov.appendChild(panel);
+  const slowBox = panel.querySelector('#pLoadSlow');
+  const slowReload = document.createElement('button'); slowReload.textContent = '🔄 Reload game'; slowReload.style.cssText = 'margin:8px 4px 0;';
+  const slowSkip = document.createElement('button'); slowSkip.textContent = 'Continue anyway'; slowSkip.style.cssText = 'margin:8px 4px 0;';
+  slowBox.appendChild(slowReload); slowBox.appendChild(slowSkip);
+
+  function stop() { clearInterval(tick); clearTimeout(slowT); panel.style.display = 'none'; }
+  function update() {
+    const el = (Date.now() - start) / 1000;
+    const real = (done / total) * 100;
+    const finished = htmlDone && done >= total;
+    const pct = finished ? 100 : Math.min(99, Math.max(real, Math.min(90, el * 4)));
+    panel.querySelector('#pLoadFill').style.width = pct + '%';
+    panel.querySelector('#pLoadPct').textContent = Math.round(pct) + '%  ·  ' + Math.round(el) + 's';
+    if (finished) { clearInterval(tick); clearTimeout(slowT); setTimeout(stop, 300); }
+  }
+  const _open = openProjectPlayer;
+  openProjectPlayer = function (fileUrl) {
+    lastUrl = fileUrl;
+    const my = ++token;
+    stop();
+    const p = projectsCache[key] || {};
+    const files = Object.values(p.files || {});
+    total = 1 + files.length; done = 0; htmlDone = false; start = Date.now();
+    panel.style.top = bar.offsetHeight + 'px'; panel.style.display = 'flex';
+    slowBox.style.display = 'none';
+    tick = setInterval(update, 200);
+    slowT = setTimeout(() => { if (my === token) slowBox.style.display = 'block'; }, 60000);
+    files.forEach(f => { fetch(f.url, { mode: 'no-cors' }).catch(() => {}).finally(() => { if (my === token) done++; }); });
+    frame.onload = () => {
+      if (my !== token) return;
+      const sd = frame.srcdoc || '';
+      if (sd.length < 200 && sd.indexOf('Loading project...') !== -1) return;
+      if (sd.indexOf('Could not load this project') !== -1) { stop(); return; }
+      if (!htmlDone) { htmlDone = true; done++; }
+    };
+    _open(fileUrl);
+  };
+  const reload = () => { if (lastUrl) openProjectPlayer(lastUrl); };
+  reloadBtn.onclick = reload; slowReload.onclick = reload;
+  slowSkip.onclick = stop;
+  closeBtn.addEventListener('click', () => { token++; stop(); });
 })();
 
 </script>
