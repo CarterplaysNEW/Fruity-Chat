@@ -264,6 +264,21 @@
   body[data-theme="roblox"] button { background:linear-gradient(#ffffff,#c9d3e0); border:1px solid #5b6f8c; font-weight:bold; }
   body[data-theme="roblox"] button:hover { background:linear-gradient(#fff4e8,#f3b98a); }
   body[data-theme="roblox"] .sechdr, body[data-theme="roblox"] #channelPanel .chHdr { border-bottom:2px solid #e2601a; }
+
+  body[data-theme="win7"] {
+    --body-bg:linear-gradient(160deg,#1c6fb5,#5fc3e4 50%,#1c6fb5); --face:#e4eefa; --face-dark:#8fb2d9; --face-light:#fff;
+    --titlebar-grad:linear-gradient(180deg,rgba(255,255,255,.75),rgba(150,200,240,.85) 48%,rgba(90,160,225,.9) 52%,rgba(150,205,245,.95));
+    --titlebar-text:#0b2a4a; --accent:#3a8ee0; --own-msg-bg:#d3e7fb; --font:'Segoe UI',Tahoma,sans-serif; --radius:8px;
+  }
+  body[data-theme="win7"] .win { border-radius:8px; box-shadow:0 6px 22px rgba(0,30,70,.55); }
+  body[data-theme="win7"] .titlebar { text-shadow:0 0 8px #fff; }
+  body[data-theme="terminal"] {
+    --body-bg:#000; --face:#050f05; --face-dark:#0f0; --face-light:#0a5c0a; --titlebar-grad:#0a3d0a; --titlebar-text:#7dff7d;
+    --accent:#0f0; --text:#3dff3d; --input-bg:#000; --own-msg-bg:#082408; --font:'Courier New',monospace; --mention-color:#fff; --radius:0px;
+  }
+  body[data-theme="terminal"] .win { box-shadow:0 0 12px #0f0; }
+  body[data-theme="terminal"] .navitem:hover, body[data-theme="terminal"] .navitem.active { color:#000; }
+  body[data-theme="terminal"] input, body[data-theme="terminal"] textarea, body[data-theme="terminal"] select, body[data-theme="terminal"] button { color:#3dff3d; }
 </style>
 </head>
 <body>
@@ -308,6 +323,8 @@
             <option value="vista">Windows Vista</option>
             <option value="me">Windows Me</option>
             <option value="roblox">Roblox 2010</option>
+            <option value="win7">Windows 7 Aero</option>
+            <option value="terminal">Terminal</option>
           </optgroup>
         </select>
         <label style="margin-top:6px;">Window Size</label>
@@ -706,7 +723,7 @@ db.ref('frugoStatus').on('value', snap => {
   const el = document.getElementById('msgInput'); if (el) el.maxLength = hasFrugo(uid) ? 2500 : 1500;
   const grp = document.getElementById('frugoThemeGroup');
   if (grp) grp.style.display = hasFrugo(uid) ? '' : 'none';
-  if (!hasFrugo(uid) && ['win01', 'vista', 'me', 'roblox'].includes(document.body.dataset.theme)) applyTheme('98');
+  if (!hasFrugo(uid) && ['win01', 'vista', 'me', 'roblox', 'win7', 'terminal'].includes(document.body.dataset.theme)) applyTheme('98');
 });
 function refreshStatsDisplay() {
   const mine = statsCache[uid] || { points: 0, level: 0 };
@@ -2294,7 +2311,8 @@ const GAMES = [
   { id: 'reaction', name: 'Reaction Test', diff: 'Medium', reward: 12 },
   { id: 'color', name: 'Color Match', diff: 'Medium', reward: 10 },
   { id: 'memory', name: 'Number Memory', diff: 'Hard', reward: 20 },
-  { id: 'simon', name: 'Simon Says', diff: 'Hard', reward: 25 }
+  { id: 'simon', name: 'Simon Says', diff: 'Hard', reward: 25 },
+  { id: 'typing', name: 'Speed Typing', diff: 'Medium', reward: 14 }
 ];
 function gameCooldownLeft(id) { const t = parseInt(localStorage.getItem('fc_game_cd_' + id) || '0'); return Math.max(0, t - Date.now()); }
 function renderGamesTab() {
@@ -2359,6 +2377,17 @@ function playGame(g) {
       b.onclick = () => finishGame(g, c.n === displayColor.n ? g.reward : 0);
       btnBox.appendChild(b);
     });
+  } else if (g.id === 'typing') {
+    const phrases = ['the quick brown fruit jumps over the lazy juice', 'frugo makes every chat feel like 2010', 'type this fast to earn some frugos', 'never let the voice chat lag again'];
+    const phrase = phrases[Math.floor(Math.random() * phrases.length)];
+    area.innerHTML = `<p>Type this as fast as you can:</p><p><b>${phrase}</b></p><input type="text" id="typeAns" style="width:100%;" placeholder="Start typing..."><button id="typeSubmit">Submit</button>`;
+    const startT = Date.now();
+    document.getElementById('typeSubmit').onclick = () => {
+      const val = document.getElementById('typeAns').value.trim().toLowerCase();
+      const secs = (Date.now() - startT) / 1000;
+      if (val !== phrase) { finishGame(g, 0); return; }
+      finishGame(g, secs < 12 ? g.reward : secs < 20 ? Math.round(g.reward * 0.6) : Math.round(g.reward * 0.3));
+    };
   } else if (g.id === 'simon') {
     const seq = Array.from({ length: 5 }, () => Math.floor(Math.random() * 4));
     const colors = ['#e33', '#36e', '#2a6', '#dd3'];
@@ -2695,6 +2724,96 @@ if (profile) {
   if (hashMatch) setTimeout(() => switchView('srv:' + hashMatch[1]), 800);
 }
 else { openForm('setup'); }
+/* FC_EXTRAS: edit messages, leaderboard, search, daily bonus, mention sound, Frugo name colour */
+(function () {
+  const anchor = document.getElementById('settingsBtn');
+  function mkBtn(label, title, fn) { const b = document.createElement('button'); b.className = 'tb'; b.textContent = label; b.title = title; b.onclick = fn; anchor.parentNode.insertBefore(b, anchor); return b; }
+
+  /* Leaderboard */
+  mkBtn('🏆', 'Leaderboard', () => {
+    const ids = Object.keys(statsCache).sort((a, b) => ((statsCache[b].level || 0) - (statsCache[a].level || 0)) || ((statsCache[b].points || 0) - (statsCache[a].points || 0))).slice(0, 10);
+    const rows = ids.map((id, i) => `<div style="padding:3px 0;">${i + 1}. <b>${escapeHtml(displayNameOf(profilesCache[id] || {}))}</b> — Lv.${statsCache[id].level || 0} · ${statsCache[id].points || 0}🍹</div>`).join('') || '<div>No stats yet.</div>';
+    const ov = document.createElement('div');
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:40;';
+    ov.innerHTML = `<div class="win" style="width:300px;"><div class="titlebar"><span>🏆 Leaderboard</span><span class="x">✕</span></div><div style="padding:10px;">${rows}</div></div>`;
+    ov.onclick = e => { if (e.target === ov || e.target.classList.contains('x')) ov.remove(); };
+    document.body.appendChild(ov);
+  });
+
+  /* Search loaded messages */
+  mkBtn('🔎', 'Search this chat', () => {
+    const term = (prompt('Search messages in this chat (loaded messages only):') || '').trim().toLowerCase();
+    if (!term) return;
+    const rows = Array.from(document.querySelectorAll('#messages .msg')).reverse();
+    const hit = rows.find(r => (r.textContent || '').toLowerCase().includes(term));
+    if (hit) jumpToMessage(hit.dataset.key); else alert('No matching messages loaded. Scroll up to load older ones and try again.');
+  });
+
+  /* Mention sound */
+  function fcBeep() {
+    if (localStorage.getItem('fc_sound') === 'off') return;
+    try { const c = new (window.AudioContext || window.webkitAudioContext)(); const o = c.createOscillator(), g = c.createGain(); o.connect(g); g.connect(c.destination); o.frequency.value = 880; g.gain.value = 0.08; o.start(); o.stop(c.currentTime + 0.15); setTimeout(() => c.close(), 400); } catch (e) {}
+  }
+  const soundBtn = mkBtn(localStorage.getItem('fc_sound') === 'off' ? '🔇' : '🔊', 'Mention sound on/off', () => {
+    const off = localStorage.getItem('fc_sound') !== 'off';
+    localStorage.setItem('fc_sound', off ? 'off' : 'on'); soundBtn.textContent = off ? '🔇' : '🔊';
+  });
+  let lastPingCount = 0;
+  const _rp = renderPings;
+  renderPings = function () { _rp(); if (pings.length > lastPingCount) fcBeep(); lastPingCount = pings.length; };
+
+  /* Edit own messages + Frugo name colour */
+  function fcChanged(snap) {
+    const m = snap.val(), row = document.querySelector('.msg[data-key="' + snap.key + '"]');
+    if (!row || !m) return;
+    const t = row.querySelector('.txt');
+    if (t) t.innerHTML = formatMessage(m.text || '') + (m.edited ? ' <small style="color:#888">(edited)</small>' : '');
+  }
+  let chgRef = null;
+  function watchChanges() { if (chgRef) chgRef.off('child_changed', fcChanged); chgRef = currentMsgRef; if (chgRef) chgRef.on('child_changed', fcChanged); }
+  const _sv = switchView;
+  switchView = function (v) { _sv(v); watchChanges(); };
+  watchChanges();
+  function decorate(row) {
+    if (!row.classList || !row.classList.contains('msg')) return;
+    const nameEl = row.querySelector('.name');
+    if (nameEl && hasFrugo(row.dataset.uid)) nameEl.style.color = '#ff8c1a';
+    const bar = row.querySelector('.msgToolbar');
+    if (bar && row.dataset.uid === uid && !bar.querySelector('.editBtn')) {
+      const b = document.createElement('button'); b.className = 'editBtn'; b.title = 'Edit'; b.textContent = '✏️';
+      b.onclick = async e => {
+        e.stopPropagation();
+        const ref = getConvoRef(currentView).child(row.dataset.key);
+        const snap = await ref.once('value'); const m = snap.val(); if (!m) return;
+        const nt = prompt('Edit your message:', m.text || '');
+        if (nt === null) return;
+        const clean = nt.trim(), limit = hasFrugo(uid) ? 2500 : 1500;
+        if (!clean || clean === m.text) return;
+        if (clean.length > limit) { alert('Message too long (max ' + limit + ').'); return; }
+        ref.update({ text: clean, edited: true }).catch(err => alert('Could not edit: ' + err.message));
+      };
+      bar.insertBefore(b, bar.firstChild);
+    }
+  }
+  new MutationObserver(list => list.forEach(r => r.addedNodes.forEach(decorate))).observe(document.getElementById('messages'), { childList: true });
+
+  /* Daily bonus */
+  setTimeout(() => {
+    if (!profile) return;
+    const today = new Date().toISOString().slice(0, 10);
+    db.ref('daily/' + uid).once('value').then(s => {
+      if (s.val() === today) return;
+      db.ref('daily/' + uid).set(today);
+      db.ref('stats/' + uid).once('value').then(ss => {
+        const mine = ss.val() || { points: 0, level: 0, msgCount: 0 };
+        const u = { ...mine, points: (mine.points || 0) + 10 };
+        statsCache[uid] = u; db.ref('stats/' + uid).set(u);
+        setStatus('Daily bonus: +10 🍹', false); setTimeout(() => setStatus('', false), 3500);
+      });
+    }).catch(() => {});
+  }, 3000);
+})();
+
 </script>
 </body>
 </html>
