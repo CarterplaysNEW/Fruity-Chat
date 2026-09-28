@@ -2539,13 +2539,27 @@ document.getElementById('vcFsSendBtn').onclick = () => {
 document.getElementById('vcFsChatInput').onkeydown = e => { if (e.key === 'Enter') document.getElementById('vcFsSendBtn').onclick(); };
 function createPeer(otherUid) {
   const pc = new RTCPeerConnection(rtcConfig);
+  pc.polite = uid > otherUid; pc.makingOffer = false; pc.pendingCands = [];
   vcPeers[otherUid] = pc;
   pc.onicecandidate = e => { if (e.candidate) db.ref('vcCandidates/main/' + otherUid + '~' + uid).push(e.candidate.toJSON()); };
-  pc.ontrack = e => attachRemoteStream(otherUid, e.streams[0]);
-  pc.onnegotiationneeded = async () => {
-    try { const offer = await pc.createOffer(); await pc.setLocalDescription(offer); vcSignalRef(otherUid, uid).set({ type: 'offer', sdp: offer }); } catch (e) {}
+  pc.ontrack = e => {
+    if (!document.getElementById('vcTile_' + otherUid)) renderVcTiles();
+    attachRemoteStream(otherUid, e.streams[0]);
   };
-  db.ref('vcCandidates/main/' + uid + '~' + otherUid).on('child_added', snap => { pc.addIceCandidate(new RTCIceCandidate(snap.val())).catch(() => {}); snap.ref.remove(); });
+  pc.onnegotiationneeded = async () => {
+    try {
+      pc.makingOffer = true;
+      await pc.setLocalDescription();
+      vcSignalRef(otherUid, uid).set({ type: 'offer', sdp: { type: pc.localDescription.type, sdp: pc.localDescription.sdp } });
+    } catch (e) { console.warn('VC offer error', e); }
+    finally { pc.makingOffer = false; }
+  };
+  db.ref('vcCandidates/main/' + uid + '~' + otherUid).on('child_added', snap => {
+    const c = snap.val(); snap.ref.remove();
+    if (!c) return;
+    if (pc.remoteDescription) pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
+    else pc.pendingCands.push(c);
+  });
   return pc;
 }
 async function joinVC() {
@@ -2557,19 +2571,22 @@ async function joinVC() {
   db.ref('vc/main/' + uid).onDisconnect().remove();
   db.ref('vcSignal/main/' + uid).on('child_added', async snap => {
     const fromUid = snap.key, msg = snap.val();
-    if (!msg) return;
-    let pc = vcPeers[fromUid];
-    if (msg.type === 'offer') {
-      if (!pc) pc = createPeer(fromUid);
-      await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-      addLocalTracksTo(pc);
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      vcSignalRef(fromUid, uid).set({ type: 'answer', sdp: answer });
-    } else if (msg.type === 'answer' && pc) {
-      await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-    }
     snap.ref.remove();
+    if (!msg) return;
+    const pc = vcPeers[fromUid] || createPeer(fromUid);
+    try {
+      if (msg.type === 'offer') {
+        const collision = pc.makingOffer || pc.signalingState !== 'stable';
+        if (collision && !pc.polite) return;
+        await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+        addLocalTracksTo(pc);
+        await pc.setLocalDescription(await pc.createAnswer());
+        vcSignalRef(fromUid, uid).set({ type: 'answer', sdp: { type: pc.localDescription.type, sdp: pc.localDescription.sdp } });
+      } else if (msg.type === 'answer') {
+        await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+      }
+      pc.pendingCands.splice(0).forEach(c => pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {}));
+    } catch (e) { console.warn('VC signaling error', e); }
   });
   db.ref('vc/main').on('value', snap => {
     const list = snap.val() || {};
