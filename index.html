@@ -251,6 +251,19 @@
   }
   body[data-theme="vapor"] .win { box-shadow:0 0 14px #ff71ce, 0 0 22px #01cdfe inset; }
   body[data-theme="vapor"] input, body[data-theme="vapor"] textarea { color:#fffb96; }
+
+  body[data-theme="roblox"] {
+    --body-bg:radial-gradient(circle,#8d8d8d 0 3px,transparent 4px) 0 0/28px 28px,#5f5f5f;
+    --face:#eef2f7; --face-dark:#8fa0b8; --face-light:#fff;
+    --titlebar-grad:linear-gradient(180deg,#4a7bc0,#1c3d70); --titlebar-text:#fff;
+    --accent:#e2601a; --text:#1a1a1a; --input-bg:#fff; --own-msg-bg:#dcebff;
+    --font:Verdana,Arial,sans-serif; --mention-color:#c8400a; --radius:4px;
+  }
+  body[data-theme="roblox"] .win { border:1px solid #1c3d70; box-shadow:0 3px 12px rgba(0,0,0,.5); }
+  body[data-theme="roblox"] .titlebar { border-bottom:2px solid #e2601a; text-shadow:0 1px 0 rgba(0,0,0,.5); }
+  body[data-theme="roblox"] button { background:linear-gradient(#ffffff,#c9d3e0); border:1px solid #5b6f8c; font-weight:bold; }
+  body[data-theme="roblox"] button:hover { background:linear-gradient(#fff4e8,#f3b98a); }
+  body[data-theme="roblox"] .sechdr, body[data-theme="roblox"] #channelPanel .chHdr { border-bottom:2px solid #e2601a; }
 </style>
 </head>
 <body>
@@ -294,6 +307,7 @@
             <option value="win01">Windows 0.1</option>
             <option value="vista">Windows Vista</option>
             <option value="me">Windows Me</option>
+            <option value="roblox">Roblox 2010</option>
           </optgroup>
         </select>
         <label style="margin-top:6px;">Window Size</label>
@@ -692,7 +706,7 @@ db.ref('frugoStatus').on('value', snap => {
   const el = document.getElementById('msgInput'); if (el) el.maxLength = hasFrugo(uid) ? 2500 : 1500;
   const grp = document.getElementById('frugoThemeGroup');
   if (grp) grp.style.display = hasFrugo(uid) ? '' : 'none';
-  if (!hasFrugo(uid) && ['win01', 'vista', 'me'].includes(document.body.dataset.theme)) applyTheme('98');
+  if (!hasFrugo(uid) && ['win01', 'vista', 'me', 'roblox'].includes(document.body.dataset.theme)) applyTheme('98');
 });
 function refreshStatsDisplay() {
   const mine = statsCache[uid] || { points: 0, level: 0 };
@@ -722,7 +736,7 @@ function makeCropper(frameEl, imgEl, zoomEl, frameW, frameH) {
           minScale = Math.max(frameW / natW, frameH / natH);
           scale = minScale; offX = (frameW - natW * scale) / 2; offY = (frameH - natH * scale) / 2;
           zoomEl.value = 0; dirty = !!isNew;
-          imgEl.crossOrigin = 'anonymous';   // lets the canvas export remote (Cloudinary) images
+          imgEl.crossOrigin = 'anonymous';
           imgEl.src = dataUrl; imgEl.style.display = 'block'; apply(); res();
         };
         img.crossOrigin = 'anonymous';
@@ -821,16 +835,24 @@ document.getElementById('enterBtn').onclick = async () => {
   if (taken) { errEl.textContent = 'That username is already taken.'; document.getElementById('enterBtn').disabled = false; return; }
   let avatarUrl = (formMode === 'edit' && profile.avatar) ? profile.avatar : DEFAULT_AVATAR;
   let bannerUrl = (formMode === 'edit' && profile.banner) ? profile.banner : DEFAULT_BANNER;
-  const uploadErrors = [];
-  if (avatarCropper.hasImage()) {
-    try { avatarUrl = await uploadDataUrl(avatarCropper.getResult(96, 96), `avatars/${uid}_${Date.now()}.png`); }
-    catch (e) { uploadErrors.push('Avatar: ' + e.message); }
+    let usedFallback = false;
+  async function uploadOrInline(cropper, w, h, path) {
+    try { return await uploadDataUrl(cropper.getResult(w, h), path); }
+    catch (e) {
+      console.warn('Cloud upload failed, saving inline instead:', e);
+      usedFallback = true;
+      try { return cropper.getResult(w, h, 'image/jpeg'); } catch (e2) { return null; }
+    }
   }
-  if (bannerCropper.hasImage()) {
-    try { bannerUrl = await uploadDataUrl(bannerCropper.getResult(300, 80), `banners/${uid}_${Date.now()}.png`); }
-    catch (e) { uploadErrors.push('Banner: ' + e.message); }
+  if (avatarCropper.isDirty()) {
+    const u = await uploadOrInline(avatarCropper, 96, 96, `avatars/${uid}_${Date.now()}.png`);
+    if (u) avatarUrl = u;
   }
-  if (uploadErrors.length) errEl.textContent = uploadErrors.join(' | ');
+  if (bannerCropper.isDirty()) {
+    const u = await uploadOrInline(bannerCropper, 300, 80, `banners/${uid}_${Date.now()}.png`);
+    if (u) bannerUrl = u;
+  }
+  if (usedFallback) alert("Cloud image upload failed, so your picture was saved directly instead. If this keeps happening, check your Cloudinary quota and that the upload preset is still set to Unsigned.");
   document.getElementById('enterBtn').disabled = false;
   profile = {
     name,
