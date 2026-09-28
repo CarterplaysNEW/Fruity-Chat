@@ -2164,10 +2164,20 @@ function openProjectView(key) {
   document.getElementById('projectViewOverlay').style.display = 'flex';
 }
 function openProjectPlayer(fileUrl) {
-  document.getElementById('projectPlayerFrame').src = fileUrl;
+  const frame = document.getElementById('projectPlayerFrame');
+  frame.setAttribute('sandbox', 'allow-scripts allow-forms allow-pointer-lock allow-popups allow-modals');
+  frame.removeAttribute('srcdoc');
   document.getElementById('projectPlayerOverlay').style.display = 'flex';
+  frame.srcdoc = '<body style="font-family:sans-serif;padding:20px">Loading project...</body>';
+  fetch(fileUrl).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+    .then(html => { frame.srcdoc = html; })
+    .catch(err => { frame.srcdoc = '<body style="font-family:sans-serif;padding:20px;color:#a00">Could not load this project (' + String(err.message).replace(/</g, '') + ').</body>'; });
 }
-document.getElementById('closeProjectPlayer').onclick = () => { document.getElementById('projectPlayerOverlay').style.display = 'none'; document.getElementById('projectPlayerFrame').src = 'about:blank'; };
+document.getElementById('closeProjectPlayer').onclick = () => {
+  const frame = document.getElementById('projectPlayerFrame');
+  document.getElementById('projectPlayerOverlay').style.display = 'none';
+  frame.removeAttribute('srcdoc'); frame.src = 'about:blank';
+};
 document.getElementById('closePv').onclick = () => document.getElementById('projectViewOverlay').style.display = 'none';
 
 document.getElementById('createProjectBtn').onclick = () => { pwState = { file: null, name: '', desc: '', minAge: 13, icon: null, editKey: null }; showPwStep(1); };
