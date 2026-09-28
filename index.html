@@ -705,41 +705,47 @@ function updateTitle() {
 
 /* ---------- Cropper ---------- */
 function makeCropper(frameEl, imgEl, zoomEl, frameW, frameH) {
-  let natW = 0, natH = 0, minScale = 1, scale = 1, offX = 0, offY = 0;
+  let natW = 0, natH = 0, minScale = 1, scale = 1, offX = 0, offY = 0, dirty = false;
   let dragging = false, startX = 0, startY = 0, startOffX = 0, startOffY = 0;
   function apply() { imgEl.style.width = (natW * scale) + 'px'; imgEl.style.height = (natH * scale) + 'px'; imgEl.style.left = offX + 'px'; imgEl.style.top = offY + 'px'; }
   function clamp() { const w = natW * scale, h = natH * scale; offX = Math.min(0, Math.max(offX, frameW - w)); offY = Math.min(0, Math.max(offY, frameH - h)); }
   frameEl.addEventListener('pointerdown', e => { if (!natW) return; dragging = true; startX = e.clientX; startY = e.clientY; startOffX = offX; startOffY = offY; frameEl.setPointerCapture(e.pointerId); });
-  frameEl.addEventListener('pointermove', e => { if (!dragging) return; offX = startOffX + (e.clientX - startX); offY = startOffY + (e.clientY - startY); clamp(); apply(); });
+  frameEl.addEventListener('pointermove', e => { if (!dragging) return; dirty = true; offX = startOffX + (e.clientX - startX); offY = startOffY + (e.clientY - startY); clamp(); apply(); });
   frameEl.addEventListener('pointerup', () => dragging = false);
-  zoomEl.addEventListener('input', () => { scale = minScale * (1 + zoomEl.value / 50); clamp(); apply(); });
+  zoomEl.addEventListener('input', () => { dirty = true; scale = minScale * (1 + zoomEl.value / 50); clamp(); apply(); });
   return {
-    load(dataUrl) {
+    load(dataUrl, isNew) {
       return new Promise(res => {
         const img = new Image();
         img.onload = () => {
           natW = img.width; natH = img.height;
           minScale = Math.max(frameW / natW, frameH / natH);
           scale = minScale; offX = (frameW - natW * scale) / 2; offY = (frameH - natH * scale) / 2;
-          zoomEl.value = 0; imgEl.src = dataUrl; imgEl.style.display = 'block'; apply(); res();
+          zoomEl.value = 0; dirty = !!isNew;
+          imgEl.crossOrigin = 'anonymous';   // lets the canvas export remote (Cloudinary) images
+          imgEl.src = dataUrl; imgEl.style.display = 'block'; apply(); res();
         };
+        img.crossOrigin = 'anonymous';
         img.src = dataUrl;
       });
     },
     hasImage() { return !!natW; },
-    getResult(outW, outH) {
+    isDirty() { return dirty; },
+    getResult(outW, outH, mime) {
       const c = document.createElement('canvas'); c.width = outW; c.height = outH;
+      const ctx = c.getContext('2d');
+      if (mime === 'image/jpeg') { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, outW, outH); }
       const ratio = outW / frameW;
-      c.getContext('2d').drawImage(imgEl, offX * ratio, offY * ratio, natW * scale * ratio, natH * scale * ratio);
-      return c.toDataURL('image/png', 0.85);
+      ctx.drawImage(imgEl, offX * ratio, offY * ratio, natW * scale * ratio, natH * scale * ratio);
+      return c.toDataURL(mime || 'image/png', 0.85);
     }
   };
 }
 const avatarCropper = makeCropper(document.getElementById('avatarFrame'), document.getElementById('avatarImg'), document.getElementById('avatarZoom'), 96, 96);
 const bannerCropper = makeCropper(document.getElementById('bannerFrame'), document.getElementById('bannerImg'), document.getElementById('bannerZoom'), 300, 80);
 function fileToDataUrl(file) { return new Promise(res => { const r = new FileReader(); r.onload = e => res(e.target.result); r.readAsDataURL(file); }); }
-document.getElementById('avatarInput').onchange = async e => { if (e.target.files[0]) avatarCropper.load(await fileToDataUrl(e.target.files[0])); };
-document.getElementById('bannerInput').onchange = async e => { if (e.target.files[0]) bannerCropper.load(await fileToDataUrl(e.target.files[0])); };
+document.getElementById('avatarInput').onchange = async e => { if (e.target.files[0]) avatarCropper.load(await fileToDataUrl(e.target.files[0]), true); };
+document.getElementById('bannerInput').onchange = async e => { if (e.target.files[0]) bannerCropper.load(await fileToDataUrl(e.target.files[0]), true); };
 
 /* ---------- Username check ---------- */
 async function nameTaken(name, excludeUid) {
