@@ -3438,6 +3438,261 @@ else { openForm('setup'); }
   };
 })();
 
+/* FC_EXTRAS8: channel types (text/announcement/voice) + channel editing + multi-room voice chat */
+(function () {
+  function chanInfo(raw) { return (raw && typeof raw === 'object') ? { name: raw.name || 'channel', type: raw.type || 'text' } : { name: raw || 'channel', type: 'text' }; }
+  const TYPE_ICON = { text: '#', announcement: '📢', voice: '🔊' };
+  let currentChanType = 'text';
+
+  let currentVcRoom = 'main';
+  function vcSigRef(room, to, from) { return db.ref('vcSignal/' + room + '/' + to + '/' + from); }
+  window.createPeer = function (otherUid) {
+    const room = currentVcRoom;
+    const pc = new RTCPeerConnection(rtcConfig);
+    pc.polite = uid > otherUid; pc.makingOffer = false; pc.pendingCands = [];
+    vcPeers[otherUid] = pc;
+    pc.onicecandidate = e => { if (e.candidate) db.ref('vcCandidates/' + room + '/' + otherUid + '~' + uid).push(e.candidate.toJSON()); };
+    pc.ontrack = e => { if (!document.getElementById('vcTile_' + otherUid)) renderVcTiles(); attachRemoteStream(otherUid, e.streams[0]); };
+    pc.onnegotiationneeded = async () => {
+      try { pc.makingOffer = true; await pc.setLocalDescription(); vcSigRef(room, otherUid, uid).set({ type: 'offer', sdp: { type: pc.localDescription.type, sdp: pc.localDescription.sdp } }); }
+      catch (e) { console.warn('VC offer error', e); } finally { pc.makingOffer = false; }
+    };
+    db.ref('vcCandidates/' + room + '/' + uid + '~' + otherUid).on('child_added', snap => {
+      const c = snap.val(); snap.ref.remove();
+      if (!c) return;
+      if (pc.remoteDescription) pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {}); else pc.pendingCands.push(c);
+    });
+    return pc;
+  };
+  let vcSignalListenerRoom = null;
+  function attachSignalListener(room) {
+    if (vcSignalListenerRoom === room) return;
+    if (vcSignalListenerRoom) db.ref('vcSignal/' + vcSignalListenerRoom + '/' + uid).off();
+    vcSignalListenerRoom = room;
+    db.ref('vcSignal/' + room + '/' + uid).on('child_added', async snap => {
+      const fromUid = snap.key, msg = snap.val(); snap.ref.remove();
+      if (!msg || room !== currentVcRoom) return;
+      const pc = vcPeers[fromUid] || createPeer(fromUid);
+      try {
+        if (msg.type === 'offer') {
+          const collision = pc.makingOffer || pc.signalingState !== 'stable';
+          if (collision && !pc.polite) return;
+          await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+          addLocalTracksTo(pc);
+          await pc.setLocalDescription(await pc.createAnswer());
+          vcSigRef(room, fromUid, uid).set({ type: 'answer', sdp: { type: pc.localDescription.type, sdp: pc.localDescription.sdp } });
+        } else if (msg.type === 'answer') { await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp)); }
+        pc.pendingCands.splice(0).forEach(c => pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {}));
+      } catch (e) { console.warn('VC signaling error', e); }
+    });
+  }
+  let vcListRef = null, vcListHandler = null;
+  window.joinVC = async function (room) {
+    room = room || 'main';
+    if (vcJoined && currentVcRoom === room) { switchView(room === 'main' ? 'vc:main' : 'vcsrv:' + room); return; }
+    if (vcJoined) leaveVC();
+    currentVcRoom = room; vcJoined = true;
+    try { localStream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+    catch (e) { alert('Could not access your microphone — joining muted. (' + e.message + ')'); localStream = null; }
+    db.ref('vc/' + room + '/' + uid).set({ name: profile.name, micOn: true, ts: firebase.database.ServerValue.TIMESTAMP });
+    db.ref('vc/' + room + '/' + uid).onDisconnect().remove();
+    attachSignalListener(room);
+    if (vcListRef && vcListHandler) vcListRef.off('value', vcListHandler);
+    vcListRef = db.ref('vc/' + room);
+    vcListHandler = snap => {
+      const list = snap.val() || {};
+      vcRoster = list;
+      if (room === 'main') renderVcRoster();
+      if (currentVcRoom === room) renderVcTiles();
+      if (!vcJoined || currentVcRoom !== room) return;
+      Object.keys(list).forEach(otherUid => { if (otherUid === uid || vcPeers[otherUid]) return; if (uid < otherUid) { const pc = createPeer(otherUid); addLocalTracksTo(pc); } });
+      Object.keys(vcPeers).forEach(otherUid => { if (!list[otherUid]) { vcPeers[otherUid].close(); delete vcPeers[otherUid]; const t = document.getElementById('vcTile_' + otherUid); if (t) t.querySelector('video')?.remove(); } });
+    };
+    vcListRef.on('value', vcListHandler);
+    switchView(room === 'main' ? 'vc:main' : 'vcsrv:' + room);
+    clearInterval(vcHeartbeat);
+    vcHeartbeat = setInterval(() => { if (!vcJoined) return; const ref = db.ref('vc/' + currentVcRoom + '/' + uid); ref.update({ ts: firebase.database.ServerValue.TIMESTAMP }).catch(() => {}); ref.onDisconnect().remove(); }, 15000);
+  };
+  window.leaveVC = function () {
+    const room = currentVcRoom;
+    vcJoined = false;
+    clearInterval(vcHeartbeat);
+    db.ref('vc/' + room + '/' + uid).remove();
+    if (vcListRef && vcListHandler) { vcListRef.off('value', vcListHandler); vcListRef = null; }
+    Object.values(vcPeers).forEach(pc => pc.close());
+    vcPeers = {};
+    if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+    if (screenStream) { screenStream.getTracks().forEach(t => t.stop()); screenStream = null; }
+    if (room !== 'main') { vcRoster = {}; renderVcRoster(); }
+    switchView('main');
+  };
+  const _sv8 = switchView;
+  switchView = function (v) {
+    if (v === 'vcsrv:' + currentVcRoom && currentVcRoom !== 'main' && vcJoined) {
+      _sv8('main');
+      document.getElementById('vcBar').style.display = 'flex';
+      document.getElementById('vcTiles').style.display = 'flex';
+      const sid = currentVcRoom.split(':')[1], cid = currentVcRoom.split(':')[2];
+      const s = serversCache[sid], ch = s && s.channels && s.channels[cid];
+      document.getElementById('chatHeaderText').textContent = (s ? s.name : 'Server') + ' — 🔊 ' + (chanInfo(ch).name || 'voice');
+      renderVcTiles();
+      document.querySelectorAll('#vcTiles video').forEach(vid => vid.play().catch(() => {}));
+      currentView = v;
+      return;
+    }
+    _sv8(v);
+  };
+  document.getElementById('mainVcNav').onclick = () => joinVC('main');
+  document.getElementById('vcLeaveBtn').onclick = () => leaveVC();
+
+  window.renderChannelPanel = function (sid) {
+    const panel = document.getElementById('channelPanel');
+    const s = serversCache[sid];
+    panel.style.display = sid ? 'block' : 'none';
+    if (!sid) return;
+    panel.innerHTML = '<div class="chHdr">Channels</div>';
+    const canManage = s && (s.owner === uid || isAdmin());
+    const genRow = document.createElement('div');
+    genRow.className = 'navitem' + (currentView === 'srv:' + sid ? ' active' : '');
+    genRow.innerHTML = '<span class="left"># general</span>';
+    genRow.onclick = () => switchView('srv:' + sid);
+    panel.appendChild(genRow);
+    const chans = (s && s.channels) || {};
+    Object.keys(chans).forEach(cid => {
+      const info = chanInfo(chans[cid]);
+      const view = info.type === 'voice' ? 'vcsrv:srv:' + sid + ':' + cid : 'srvch:' + sid + ':' + cid;
+      const row = document.createElement('div');
+      row.className = 'navitem' + (currentView === view || (info.type === 'voice' && currentVcRoom === 'srv:' + sid + ':' + cid && vcJoined) ? ' active' : '');
+      row.innerHTML = '<span class="left">' + TYPE_ICON[info.type] + ' ' + escapeHtml(info.name) + '</span><span class="badge" id="chCount_' + sid + '_' + cid + '" style="display:none;"></span>';
+      row.querySelector('.left').onclick = () => {
+        if (info.type === 'voice') joinVC('srv:' + sid + ':' + cid);
+        else { currentChanType = info.type; switchView('srvch:' + sid + ':' + cid); }
+      };
+      if (canManage) {
+        const edit = document.createElement('span'); edit.textContent = '✏️'; edit.style.cursor = 'pointer'; edit.title = 'Edit channel';
+        edit.onclick = e => { e.stopPropagation(); openChannelEditor(sid, cid, info); };
+        row.appendChild(edit);
+      }
+      panel.appendChild(row);
+      if (info.type === 'voice') {
+        db.ref('vc/srv:' + sid + ':' + cid).on('value', snap => {
+          const n = Object.keys(snap.val() || {}).length;
+          const b = document.getElementById('chCount_' + sid + '_' + cid);
+          if (b) { b.style.display = n ? 'inline-block' : 'none'; b.textContent = n; }
+        });
+      }
+    });
+  };
+  const _sv9 = switchView;
+  switchView = function (v) {
+    if (typeof v === 'string' && v.startsWith('srvch:')) {
+      const p = v.split(':'); const s = serversCache[p[1]];
+      currentChanType = chanInfo(s && s.channels && s.channels[p[2]]).type;
+    } else if (v === 'main') currentChanType = 'text';
+    _sv9(v);
+    if (typeof v === 'string' && v.startsWith('srvch:') && currentChanType === 'announcement') {
+      document.getElementById('inputRow').style.display = isAdmin() ? '' : 'none';
+    } else if (document.getElementById('inputRow').style.display === 'none' && currentView !== 'updates') {
+      document.getElementById('inputRow').style.display = '';
+    }
+  };
+  const _ts8 = trySend;
+  trySend = function () {
+    if (currentView.startsWith('srvch:') && currentChanType === 'announcement' && !isAdmin()) return;
+    return _ts8();
+  };
+
+  function upgradeCreateChannelUI(sid) {
+    const addBtn = document.getElementById('ssChannelAdd');
+    if (!addBtn || addBtn.dataset.typed) return;
+    addBtn.dataset.typed = '1';
+    const sel = document.createElement('select');
+    sel.id = 'ssChannelType'; sel.style.marginLeft = '4px';
+    sel.innerHTML = '<option value="text"># Text</option><option value="announcement">📢 Announcement</option><option value="voice">🔊 Voice</option>';
+    addBtn.parentNode.insertBefore(sel, addBtn);
+    addBtn.onclick = () => {
+      const name = document.getElementById('ssChannelInput').value.trim();
+      if (!name) return;
+      const chans = (serversCache[sid] && serversCache[sid].channels) || {};
+      if (Object.keys(chans).length >= 50) { alert('Max 50 channels reached.'); return; }
+      db.ref('servers/' + sid + '/channels').push({ name, type: sel.value });
+      document.getElementById('ssChannelInput').value = '';
+    };
+  }
+  const _oss = openServerSettings;
+  openServerSettings = function (sid) { _oss(sid); upgradeCreateChannelUI(sid); rebuildChannelListWithTypes(sid); };
+  function rebuildChannelListWithTypes(sid) {
+    const s = serversCache[sid] || {};
+    const chList = document.getElementById('ssChannelList');
+    if (!chList) return;
+    chList.innerHTML = '';
+    Object.keys(s.channels || {}).forEach(cid => {
+      const info = chanInfo(s.channels[cid]);
+      const row = document.createElement('div'); row.textContent = TYPE_ICON[info.type] + ' ' + info.name + '  ';
+      const edit = document.createElement('button'); edit.textContent = '✏️'; edit.onclick = () => openChannelEditor(sid, cid, info);
+      const del = document.createElement('button'); del.textContent = '✕'; del.onclick = () => { if (confirm('Delete #' + info.name + '?')) db.ref('servers/' + sid + '/channels/' + cid).remove(); };
+      row.appendChild(edit); row.appendChild(del); chList.appendChild(row);
+    });
+  }
+  function openChannelEditor(sid, cid, info) {
+    const ov = document.createElement('div');
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:46;';
+    ov.innerHTML = '<div class="win" style="width:260px;"><div class="titlebar"><span>Edit Channel</span><span class="x">✕</span></div><div style="padding:10px;">' +
+      '<label>Name</label><input type="text" id="ceName" style="width:100%;" value="' + escapeHtml(info.name) + '" maxlength="24">' +
+      '<label style="margin-top:6px;display:block;">Type</label><select id="ceType" style="width:100%;">' +
+      '<option value="text">' + TYPE_ICON.text + ' Text</option><option value="announcement">' + TYPE_ICON.announcement + ' Announcement</option><option value="voice">' + TYPE_ICON.voice + ' Voice</option></select>' +
+      '<div style="display:flex;gap:6px;margin-top:10px;"><button id="ceSave" style="flex:1;">Save</button><button id="ceDelete" style="flex:1;color:#a00;">Delete</button></div></div></div>';
+    ov.querySelector('#ceType').value = info.type;
+    ov.onclick = e => { if (e.target === ov || e.target.classList.contains('x')) ov.remove(); };
+    ov.querySelector('#ceSave').onclick = () => {
+      const name = ov.querySelector('#ceName').value.trim() || info.name;
+      const type = ov.querySelector('#ceType').value;
+      db.ref('servers/' + sid + '/channels/' + cid).set({ name, type });
+      ov.remove();
+    };
+    ov.querySelector('#ceDelete').onclick = () => { if (confirm('Delete #' + info.name + '?')) { db.ref('servers/' + sid + '/channels/' + cid).remove(); ov.remove(); } };
+    document.body.appendChild(ov);
+  }
+})();
+
+/* FC_EXTRAS9: auto-recover a frozen/black VC video, plus a manual Reconnect button */
+(function () {
+  const watchdogs = {};
+  function clearWatch(otherUid) { if (watchdogs[otherUid]) { clearTimeout(watchdogs[otherUid]); delete watchdogs[otherUid]; } }
+  function reconnectPeer(otherUid) {
+    clearWatch(otherUid);
+    const pc = vcPeers[otherUid];
+    if (pc) { pc.close(); delete vcPeers[otherUid]; }
+    const tile = document.getElementById('vcTile_' + otherUid);
+    if (tile) { const v = tile.querySelector('video'); if (v) v.remove(); const av = tile.querySelector('.tileAvatar'); if (av) av.style.display = ''; }
+    if (uid < otherUid && vcJoined) { const npc = createPeer(otherUid); addLocalTracksTo(npc); }
+  }
+  const _ars = attachRemoteStream;
+  attachRemoteStream = function (otherUid, stream) {
+    _ars(otherUid, stream);
+    if (otherUid === uid || !stream.getVideoTracks().length) return;
+    const tile = document.getElementById('vcTile_' + otherUid);
+    const vid = tile && tile.querySelector('video');
+    if (!vid) return;
+    clearWatch(otherUid);
+    let gotFrame = false;
+    const mark = () => { gotFrame = true; };
+    vid.addEventListener('loadeddata', mark, { once: true });
+    vid.addEventListener('playing', mark, { once: true });
+    watchdogs[otherUid] = setTimeout(() => {
+      if (!gotFrame && document.getElementById('vcTile_' + otherUid)) { console.warn('VC video from', otherUid, 'never started — reconnecting.'); reconnectPeer(otherUid); }
+    }, 6000);
+  };
+
+  const leaveBtn = document.getElementById('vcLeaveBtn');
+  if (leaveBtn && !document.getElementById('vcReconnectBtn')) {
+    const btn = document.createElement('button');
+    btn.id = 'vcReconnectBtn'; btn.textContent = '🔄 Reconnect';
+    btn.onclick = () => Object.keys(vcPeers).forEach(reconnectPeer);
+    leaveBtn.parentNode.insertBefore(btn, leaveBtn);
+  }
+})();
+
 </script>
 </body>
 </html>
