@@ -311,6 +311,25 @@
     --font:Arial,Helvetica,sans-serif; --radius:5px; --mention-color:#1e5fd6;
   }
   body[data-theme="aim"] .win { border:2px solid #e0b000; box-shadow:0 3px 10px rgba(0,0,0,.4); }
+
+  body[data-theme="matrix"] { --body-bg:#000; --face:#020802; --face-dark:#0f0; --face-light:#0a5; --titlebar-grad:#031403; --titlebar-text:#0f0; --accent:#0f0; --text:#0f0; --input-bg:#000; --own-msg-bg:#031803; --font:'Courier New',monospace; --mention-color:#fff; --radius:0px; }
+  body[data-theme="matrix"] .win { box-shadow:0 0 16px #0f0; background-image:repeating-linear-gradient(180deg,rgba(0,255,0,.05) 0 2px,transparent 2px 4px); }
+  body[data-theme="matrix"] .titlebar { animation:fcFlicker 4s infinite; }
+  body[data-theme="synthwave"] { --body-bg:linear-gradient(180deg,#1b0b34,#3d1461 60%,#ff2fa1); --face:#180a2e; --face-dark:#ff2fa1; --face-light:#00e5ff; --titlebar-grad:linear-gradient(90deg,#ff2fa1,#7b2ff7,#00e5ff); --titlebar-text:#fff; --accent:#00e5ff; --text:#f5e6ff; --input-bg:#160826; --own-msg-bg:#2a0f45; --font:'Courier New',monospace; --mention-color:#00e5ff; --radius:2px; }
+  body[data-theme="synthwave"] .win { box-shadow:0 0 22px #ff2fa1; }
+  body[data-theme="synthwave"] .titlebar { background-size:200% 100%; animation:fcSlide 6s linear infinite; }
+  body[data-theme="galaxy"] { --body-bg:radial-gradient(1px 1px at 20% 30%,#fff,transparent),radial-gradient(1px 1px at 70% 60%,#fff,transparent),radial-gradient(2px 2px at 50% 80%,#fff,transparent),#05021a; --face:#0a0630; --face-dark:#5a3fc0; --face-light:#c9b6ff; --titlebar-grad:linear-gradient(90deg,#2a0f6e,#7b2ff7,#2a0f6e); --titlebar-text:#e8dcff; --accent:#9d6bff; --text:#e8dcff; --input-bg:#0a0630; --own-msg-bg:#1b1050; --font:Verdana,sans-serif; --mention-color:#ff9dfb; --radius:6px; }
+  body[data-theme="galaxy"] .win { box-shadow:0 0 26px #7b2ff7; position:relative; overflow:hidden; }
+  body[data-theme="galaxy"] .win::before { content:'✦ ﾟ  . ✦   .  ﾟ✦ .'; position:absolute; inset:0; color:#fff; opacity:.35; font-size:11px; letter-spacing:8px; pointer-events:none; animation:fcTwinkle 3s ease-in-out infinite; }
+  body[data-theme="glitch"] { --body-bg:#050505; --face:#0c0c0c; --face-dark:#ff003c; --face-light:#00fff9; --titlebar-grad:#0c0c0c; --titlebar-text:#fff; --accent:#ff003c; --text:#e8e8e8; --input-bg:#050505; --own-msg-bg:#150505; --font:'Courier New',monospace; --mention-color:#00fff9; --radius:0px; }
+  body[data-theme="glitch"] .titlebar span:not(.btns) { animation:fcGlitch 2.4s infinite; }
+  body[data-theme="glitch"] .win { box-shadow:2px 0 0 #ff003c,-2px 0 0 #00fff9; }
+  @keyframes fcFlicker { 0%,100%{opacity:1} 92%{opacity:1} 93%{opacity:.7} 94%{opacity:1} 96%{opacity:.85} 97%{opacity:1} }
+  @keyframes fcSlide { 0%{background-position:0 0} 100%{background-position:200% 0} }
+  @keyframes fcTwinkle { 0%,100%{opacity:.2} 50%{opacity:.6} }
+  @keyframes fcGlitch { 0%,100%{text-shadow:none} 2%{text-shadow:2px 0 #ff003c,-2px 0 #00fff9} 4%{text-shadow:none} 40%{text-shadow:none} 42%{text-shadow:-2px 0 #ff003c,2px 0 #00fff9} 44%{text-shadow:none} }
+  .msgEmoji { height:20px; vertical-align:middle; margin:0 1px; }
+  .quickReact { font-size:12px; padding:0 3px; }
 </style>
 </head>
 <body>
@@ -3023,8 +3042,8 @@ else { openForm('setup'); }
   addBot();
 
   /* Updater posts the changelog by itself when a new version goes live (an admin has to open the site once) */
-  const SITE_VERSION = '1.8';
-  const SITE_LOG = '**Website Update — V1.8**\n\n• New free styles: YouTube 2005, MySpace, GeoCities\n• New Frugo styles: Facebook 2008, AIM Buddy List, Roblox 2010, Windows 7 Aero, Terminal\n• Updates channel with the Updater bot\n• Projects: Files, a loading bar, Reload game, and games can save progress again\n• Commands anywhere: /roll, /8ball, /poll\n• GIF quick buttons\n• Custom ping sound for mentions';
+  const SITE_VERSION = '1.9';
+  const SITE_LOG = '**Website Update — V1.9**\n\n• Frugo Tier 2 and Tier 3 — buy them in the Frugo shop\n• Animated Frugo themes: Matrix Rain, Synthwave Sunset (Tier 2), Galaxy, Glitch (Tier 3)\n• Quick reactions — your 3 most-used emoji show right on each message\n• Typing / now shows a list of commands as you type\n• Custom emoji (Tier 2+) — upload your own and use it with :name:\n• GIF avatars (Tier 2+) — upload an animated profile picture';
   setTimeout(() => {
     if (!isAdmin()) return;
     db.ref('meta/lastPostedVersion').once('value').then(s => {
@@ -3192,6 +3211,231 @@ else { openForm('setup'); }
     if (e.source !== frame.contentWindow || !e.data || !e.data.fcSave || !projKey) return;
     try { const j = JSON.stringify(e.data.fcSave); if (j.length < 200000) localStorage.setItem('fc_ps_' + projKey, j); } catch (err) {}
   });
+})();
+
+/* FC_EXTRAS6: Frugo tiers (buy UI + animated themes), quick reactions, / command autocomplete */
+(function () {
+  window.hasFrugoTier = function (id, n) {
+    const f = frugoCache[id];
+    return !!(f && f.expires > Date.now() && (f.tier || 1) >= n);
+  };
+  const TIER2_THEMES = ['matrix', 'synthwave'], TIER3_THEMES = ['galaxy', 'glitch'];
+
+  /* ---- Buy tier 2 / tier 3 in the Frugo shop ---- */
+  function tierRow(label, tier, days, cost) {
+    const div = document.createElement('div'); div.className = 'frugoItem';
+    div.innerHTML = `<div class="label">${label}<br><small>${cost} 🍹</small></div>`;
+    const btn = document.createElement('button'); btn.textContent = 'Buy';
+    btn.onclick = () => buyFrugoTier(tier, days, cost);
+    div.appendChild(btn); return div;
+  }
+  function buyFrugoTier(tier, days, cost) {
+    const mine = statsCache[uid] || { points: 0, level: 0, msgCount: 0 };
+    if ((mine.points || 0) < cost) return;
+    statsCache[uid] = { ...mine, points: mine.points - cost };
+    db.ref('stats/' + uid).set(statsCache[uid]);
+    const existing = frugoCache[uid];
+    const remainingMs = (existing && existing.expires > Date.now()) ? existing.expires - Date.now() : 0;
+    db.ref('frugoStatus/' + uid).set({ expires: Date.now() + days * 86400000 + remainingMs, tier });
+    ensureTierUI();
+  }
+  let tierUIBuilt = false;
+  function ensureTierUI() {
+    const buyTab = document.getElementById('buyTab');
+    if (!buyTab) return;
+    if (!tierUIBuilt) {
+      buyTab.insertAdjacentHTML('beforeend', '<div class="divider"><label>Frugo Tier 2 — animated themes</label></div>');
+      buyTab.appendChild(tierRow('1 Day Tier 2', 2, 1, 100));
+      buyTab.appendChild(tierRow('3 Day Tier 2', 2, 3, 300));
+      buyTab.insertAdjacentHTML('beforeend', '<div class="divider"><label>Frugo Tier 3 — top themes</label></div>');
+      buyTab.appendChild(tierRow('1 Day Tier 3', 3, 1, 150));
+      buyTab.appendChild(tierRow('3 Day Tier 3', 3, 3, 450));
+      tierUIBuilt = true;
+    }
+    const mine = statsCache[uid] || { points: 0 };
+    const f = frugoCache[uid];
+    const myTier = (f && f.expires > Date.now()) ? (f.tier || 1) : 0;
+    Array.from(buyTab.querySelectorAll('.frugoItem button')).forEach((b, i) => {
+      const costs = [50, 150, 100, 300, 150, 450];
+      if (costs[i] != null) b.disabled = (mine.points || 0) < costs[i];
+    });
+    let tierNote = buyTab.querySelector('#tierNote');
+    if (!tierNote) { tierNote = document.createElement('div'); tierNote.id = 'tierNote'; tierNote.style.cssText = 'margin-top:6px;font-size:11px;'; buyTab.insertBefore(tierNote, buyTab.children[1]); }
+    tierNote.textContent = myTier ? ('Your current tier: ' + myTier) : '';
+  }
+  const _rbt = renderBuyTab;
+  renderBuyTab = function () { _rbt(); ensureTierUI(); };
+
+  /* ---- New animated theme options + tier lock/reset ---- */
+  function ensureTierThemeOptions() {
+    const sel = document.getElementById('themeSelect');
+    if (!sel || sel.querySelector('#tier2Group')) return;
+    const g2 = document.createElement('optgroup'); g2.label = '✨ Frugo Tier 2'; g2.id = 'tier2Group';
+    g2.innerHTML = '<option value="matrix">Matrix Rain</option><option value="synthwave">Synthwave Sunset</option>';
+    const g3 = document.createElement('optgroup'); g3.label = '🌌 Frugo Tier 3'; g3.id = 'tier3Group';
+    g3.innerHTML = '<option value="galaxy">Galaxy</option><option value="glitch">Glitch</option>';
+    sel.appendChild(g2); sel.appendChild(g3);
+  }
+  const _of = openForm;
+  openForm = function (mode) { _of(mode); ensureTierThemeOptions(); const s = document.getElementById('themeSelect'); if (s.querySelector('#tier2Group')) { s.querySelector('#tier2Group').style.display = hasFrugoTier(uid, 2) ? '' : 'none'; s.querySelector('#tier3Group').style.display = hasFrugoTier(uid, 3) ? '' : 'none'; } };
+  db.ref('frugoStatus').on('value', () => {
+    if (!hasFrugoTier(uid, 2) && TIER2_THEMES.includes(document.body.dataset.theme)) applyTheme('98');
+    if (!hasFrugoTier(uid, 3) && TIER3_THEMES.includes(document.body.dataset.theme)) applyTheme('98');
+    ensureTierUI();
+  });
+
+  /* ---- Quick reactions: your 3 most-used emoji, one click to react ---- */
+  function freqMap() { try { return JSON.parse(localStorage.getItem('fc_react_freq') || '{}'); } catch (e) { return {}; } }
+  function trackFreq(em) { const f = freqMap(); f[em] = (f[em] || 0) + 1; localStorage.setItem('fc_react_freq', JSON.stringify(f)); }
+  function topEmojis() {
+    const f = freqMap();
+    const sorted = Object.keys(f).sort((a, b) => f[b] - f[a]);
+    const defaults = ['👍', '❤️', '😂'];
+    const out = [];
+    sorted.concat(defaults).forEach(e => { if (!out.includes(e) && out.length < 3) out.push(e); });
+    return out;
+  }
+  const _orp = openReactPicker;
+  openReactPicker = function (btn, reactRef) {
+    _orp(btn, reactRef);
+    document.querySelectorAll('.reactPicker span').forEach(span => {
+      const em = span.textContent, orig = span.onclick;
+      span.onclick = () => { trackFreq(em); if (orig) orig(); };
+    });
+  };
+  new MutationObserver(list => list.forEach(r => r.addedNodes.forEach(row => {
+    if (!row.classList || !row.classList.contains('msg') || row.dataset.qrDone) return;
+    row.dataset.qrDone = '1';
+    const toolbar = row.querySelector('.msgToolbar'), reactBtn = row.querySelector('.reactBtn');
+    if (!toolbar || !reactBtn) return;
+    const view = currentView, key = row.dataset.key;
+    topEmojis().forEach(em => {
+      const b = document.createElement('button'); b.className = 'quickReact'; b.textContent = em; b.title = 'React ' + em;
+      b.onclick = e => {
+        e.stopPropagation();
+        const ref = getConvoRef(view).child(key).child('reactions').child(em).child(uid);
+        ref.once('value').then(s => { if (s.val()) ref.remove(); else { ref.set(true); trackFreq(em); } });
+      };
+      toolbar.insertBefore(b, reactBtn);
+    });
+  }))).observe(document.getElementById('messages'), { childList: true });
+
+  /* ---- / command autocomplete (substring match, e.g. "s" shows anything with "s") ---- */
+  const CMDS = [{ c: 'roll', d: 'Roll a number, e.g. /roll or /roll 2d6' }, { c: '8ball', d: 'Ask the magic 8-ball' }, { c: 'poll', d: 'Question | option 1 | option 2' }, { c: 'help', d: 'List commands' }];
+  function adminCmds() { return isAdmin() ? [{ c: 'ban', d: 'name' }, { c: 'unban', d: 'name' }, { c: 'admin', d: 'name' }, { c: 'deadmin', d: 'name' }] : []; }
+  const cmdPanel = document.createElement('div');
+  cmdPanel.style.cssText = 'display:none;position:absolute;bottom:100%;left:4px;right:4px;max-height:160px;overflow-y:auto;background:#fff;border:1px solid #888;z-index:26;';
+  document.getElementById('inputRow').appendChild(cmdPanel);
+  const msgInput = document.getElementById('msgInput');
+  function hideCmdPanel() { cmdPanel.style.display = 'none'; }
+  function updateCmdAutocomplete() {
+    const v = msgInput.value;
+    const m = v.match(/^\/([a-zA-Z0-9]*)$/);
+    if (!m) { hideCmdPanel(); return; }
+    const term = m[1].toLowerCase();
+    const list = CMDS.concat(adminCmds()).filter(x => !term || x.c.includes(term));
+    if (!list.length) { hideCmdPanel(); return; }
+    cmdPanel.innerHTML = '';
+    list.forEach(x => {
+      const row = document.createElement('div');
+      row.style.cssText = 'padding:5px 7px;cursor:pointer;font-size:11px;';
+      row.innerHTML = '<b>/' + x.c + '</b> <span style="color:#777">' + escapeHtml(x.d) + '</span>';
+      row.onmouseenter = () => row.style.background = '#e8eeff';
+      row.onmouseleave = () => row.style.background = '';
+      row.onclick = () => { msgInput.value = '/' + x.c + ' '; hideCmdPanel(); msgInput.focus(); };
+      cmdPanel.appendChild(row);
+    });
+    cmdPanel.style.display = 'block';
+  }
+  const _origInput = msgInput.oninput;
+  msgInput.oninput = function (e) { if (_origInput) _origInput.call(this, e); updateCmdAutocomplete(); };
+  msgInput.addEventListener('keydown', e => { if (e.key === 'Enter') hideCmdPanel(); });
+  document.addEventListener('click', e => { if (!e.target.closest('#inputRow')) hideCmdPanel(); });
+})();
+
+/* FC_EXTRAS7: Custom emoji (Frugo Tier 2+) + GIF avatars (Frugo Tier 2+) */
+(function () {
+  let customEmojiMap = {};
+  db.ref('customEmojis').on('value', snap => {
+    const all = snap.val() || {}; customEmojiMap = {};
+    Object.values(all).forEach(e => { if (e && e.name && !(e.name in customEmojiMap)) customEmojiMap[e.name] = e.url; });
+  });
+  const _fm = formatMessage;
+  formatMessage = function (raw) {
+    let out = _fm(raw);
+    return out.replace(/:([a-zA-Z0-9_]{2,20}):/g, (m, name) => customEmojiMap[name] ? '<img class="msgEmoji" src="' + customEmojiMap[name] + '" title=":' + name + ':">' : m);
+  };
+
+  function ensureCustomEmojiUI() {
+    const panel = document.getElementById('emojiPickerPanel');
+    if (!panel || panel.querySelector('#addEmojiBtn')) return;
+  }
+  const _sep = showEmojiPicker;
+  showEmojiPicker = function (query) {
+    _sep(query);
+    const panel = document.getElementById('emojiPickerPanel');
+    if (panel.style.display === 'none') return;
+    const q = (query || '').toLowerCase();
+    Object.keys(customEmojiMap).filter(n => n.includes(q)).forEach(name => {
+      const img = document.createElement('img');
+      img.src = customEmojiMap[name]; img.title = name; img.style.cssText = 'width:22px;height:22px;cursor:pointer;object-fit:contain;';
+      img.onclick = () => insertEmoji(':' + name + ': ', query);
+      panel.appendChild(img);
+    });
+    if (hasFrugoTier(uid, 2)) {
+      const addBtn = document.createElement('span');
+      addBtn.textContent = '➕'; addBtn.title = 'Add your own emoji (Frugo Tier 2+)'; addBtn.style.fontSize = '15px';
+      addBtn.onclick = e => { e.stopPropagation(); document.getElementById('customEmojiFileInput').click(); };
+      panel.appendChild(addBtn);
+    }
+  };
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file'; fileInput.accept = 'image/*'; fileInput.id = 'customEmojiFileInput'; fileInput.style.display = 'none';
+  document.body.appendChild(fileInput);
+  fileInput.onchange = async e => {
+    const file = e.target.files[0]; e.target.value = '';
+    if (!file) return;
+    let name = (prompt('Name this emoji (letters/numbers/underscore, 2-20 chars):') || '').trim();
+    if (!name) return;
+    name = name.replace(/[^a-zA-Z0-9_]/g, '');
+    if (name.length < 2 || name.length > 20) { alert('Emoji name must be 2-20 letters, numbers or underscores.'); return; }
+    try {
+      const url = await uploadBlob(file, 'customEmojis/' + uid + '_' + Date.now() + '_' + file.name);
+      await db.ref('customEmojis').push({ name, url, uid, uploaderName: profile.name, ts: firebase.database.ServerValue.TIMESTAMP });
+      alert('Added :' + name + ': — type it in chat to use it!');
+    } catch (err) { alert('Upload failed: ' + err.message); }
+  };
+
+  /* GIF avatar (Frugo Tier 2+) — uploaded as-is, skipping the cropper so it stays animated */
+  let pendingGifAvatarUrl = null;
+  function ensureGifAvatarUI() {
+    if (document.getElementById('gifAvatarRow')) { document.getElementById('gifAvatarRow').style.display = hasFrugoTier(uid, 2) ? 'block' : 'none'; return; }
+    const row = document.createElement('div'); row.id = 'gifAvatarRow'; row.className = 'row';
+    row.style.display = hasFrugoTier(uid, 2) ? 'block' : 'none';
+    row.innerHTML = '<label>🎞️ GIF Avatar (Frugo Tier 2+)</label><input type="file" id="gifAvatarInput" accept="image/gif"><div id="gifAvatarMsg" style="font-size:11px;"></div>';
+    const avatarRow = document.getElementById('avatarInput').closest('.row');
+    avatarRow.insertAdjacentElement('afterend', row);
+    document.getElementById('gifAvatarInput').onchange = async e => {
+      const file = e.target.files[0]; e.target.value = ''; if (!file) return;
+      const msg = document.getElementById('gifAvatarMsg'); msg.style.color = ''; msg.textContent = 'Uploading...';
+      try { pendingGifAvatarUrl = await uploadBlob(file, 'avatars/' + uid + '_' + Date.now() + '.gif'); msg.textContent = 'GIF ready — click Save/Create to apply it.'; }
+      catch (err) { msg.style.color = '#a00'; msg.textContent = 'Upload failed: ' + err.message; }
+    };
+  }
+  const _of2 = openForm;
+  openForm = function (mode) { _of2(mode); pendingGifAvatarUrl = null; ensureGifAvatarUI(); };
+  const enterBtn = document.getElementById('enterBtn');
+  const _origEnterClick = enterBtn.onclick;
+  enterBtn.onclick = async function () {
+    await _origEnterClick.call(this);
+    if (pendingGifAvatarUrl && profile) {
+      profile.avatar = pendingGifAvatarUrl;
+      localStorage.setItem('fc_profile', JSON.stringify(profile));
+      db.ref('profiles/' + uid + '/avatar').set(pendingGifAvatarUrl);
+      pendingGifAvatarUrl = null;
+      const m = document.getElementById('gifAvatarMsg'); if (m) m.textContent = '';
+    }
+  };
 })();
 
 </script>
