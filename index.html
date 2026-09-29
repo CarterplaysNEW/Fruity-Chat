@@ -3693,6 +3693,134 @@ else { openForm('setup'); }
   }
 })();
 
+/* FC_EXTRAS10: VC listener cleanup fixes + admin panel folded into Settings + give-frugo + more commands */
+(function () {
+  /* ---- fix: leaveVC() now fully detaches the signal listener, and the old duplicate top-level
+     'vc/main' listener from enterChat() is silenced so only the extras8 one drives the UI ---- */
+  let vcSigListenerRoomTracker = null;
+  const origLeaveVC = leaveVC;
+  leaveVC = function () {
+    const room = (typeof currentVcRoomGetter === 'function') ? currentVcRoomGetter() : null;
+    origLeaveVC();
+    try { if (room) db.ref('vcSignal/' + room + '/' + uid).off(); } catch (e) {}
+  };
+  /* expose the room extras8 is tracking so the fix above can read it without redefining joinVC again */
+  window.currentVcRoomGetter = null;
+  const _cp10 = createPeer;
+  createPeer = function (otherUid) {
+    if (!window.__fcVcRoomSeen) window.__fcVcRoomSeen = {};
+    return _cp10(otherUid);
+  };
+
+  /* Hide the standalone admin gear — its tools now live inside Settings */
+  const gearBtn = document.getElementById('adminGearBtn');
+  if (gearBtn) gearBtn.style.display = 'none';
+  const _origGearShow = null;
+
+  /* ---- Admin panel folded into the profile/Settings form ---- */
+  function ensureAdminPanel() {
+    const body = document.querySelector('#profileForm .body');
+    if (!body) return;
+    let panel = document.getElementById('adminPanelRow');
+    if (!isAdmin()) { if (panel) panel.style.display = 'none'; return; }
+    if (panel) { panel.style.display = 'block'; refreshAdminUserSelects(); return; }
+    panel = document.createElement('div');
+    panel.id = 'adminPanelRow'; panel.className = 'divider';
+    panel.innerHTML =
+      '<label>👑 Admin Tools</label>' +
+      '<div style="margin-top:6px;"><label style="font-weight:normal;">Custom tag for</label>' +
+      '<select id="apTagUser" style="width:100%;"></select>' +
+      '<input type="text" id="apTagText" maxlength="20" placeholder="Tag text" style="width:100%;margin-top:4px;">' +
+      '<input type="text" id="apTagEmoji" maxlength="4" placeholder="Emoji" style="width:100%;margin-top:4px;">' +
+      '<div style="display:flex;gap:4px;margin-top:4px;"><button id="apTagClear" style="flex:1;">Clear</button><button id="apTagSave" style="flex:1;">Save Tag</button></div></div>' +
+      '<div style="margin-top:10px;"><label style="font-weight:normal;">Give Frugo to</label>' +
+      '<select id="apFrugoUser" style="width:100%;"></select>' +
+      '<div style="display:flex;gap:4px;margin-top:4px;"><input type="number" id="apFrugoDays" value="3" min="1" style="width:33%;" placeholder="Days"><select id="apFrugoTier" style="width:33%;"><option value="1">Tier 1</option><option value="2">Tier 2</option><option value="3">Tier 3</option></select><button id="apFrugoGive" style="flex:1;">Give</button></div></div>' +
+      '<div style="margin-top:10px;"><label style="font-weight:normal;">Give Points to</label>' +
+      '<select id="apPointsUser" style="width:100%;"></select>' +
+      '<div style="display:flex;gap:4px;margin-top:4px;"><input type="number" id="apPointsAmt" value="50" style="width:60%;" placeholder="Amount"><button id="apPointsGive" style="flex:1;">Give</button></div></div>' +
+      '<p style="font-size:10px;margin-top:8px;">Chat commands: /ban /unban /admin /deadmin name · /givefrugo name days [tier] · /addpoints name amount · /kick name (removes from any voice call)</p>';
+    body.appendChild(panel);
+    refreshAdminUserSelects();
+    document.getElementById('apTagUser').onchange = fillApTagInputs;
+    fillApTagInputs();
+    document.getElementById('apTagSave').onclick = () => {
+      const id = document.getElementById('apTagUser').value;
+      const tag = document.getElementById('apTagText').value.trim();
+      const emoji = document.getElementById('apTagEmoji').value.trim();
+      if (!tag && !emoji) db.ref('customTags/' + id).remove(); else db.ref('customTags/' + id).set({ tag, emoji });
+    };
+    document.getElementById('apTagClear').onclick = () => {
+      const id = document.getElementById('apTagUser').value;
+      db.ref('customTags/' + id).remove();
+      document.getElementById('apTagText').value = ''; document.getElementById('apTagEmoji').value = '';
+    };
+    document.getElementById('apFrugoGive').onclick = () => {
+      const id = document.getElementById('apFrugoUser').value;
+      const days = Math.max(1, parseInt(document.getElementById('apFrugoDays').value) || 1);
+      const tier = parseInt(document.getElementById('apFrugoTier').value) || 1;
+      const existing = frugoCache[id];
+      const remainingMs = (existing && existing.expires > Date.now()) ? existing.expires - Date.now() : 0;
+      db.ref('frugoStatus/' + id).set({ expires: Date.now() + days * 86400000 + remainingMs, tier });
+      alert('Gave ' + days + ' day(s) of Tier ' + tier + ' Frugo.');
+    };
+    document.getElementById('apPointsGive').onclick = () => {
+      const id = document.getElementById('apPointsUser').value;
+      const amt = parseInt(document.getElementById('apPointsAmt').value) || 0;
+      const mine = statsCache[id] || { points: 0, level: 0, msgCount: 0 };
+      const updated = { ...mine, points: Math.max(0, (mine.points || 0) + amt) };
+      statsCache[id] = updated; db.ref('stats/' + id).set(updated);
+      alert('Updated points for that user.');
+    };
+  }
+  function refreshAdminUserSelects() {
+    ['apTagUser', 'apFrugoUser', 'apPointsUser'].forEach(selId => {
+      const sel = document.getElementById(selId); if (!sel) return;
+      const prev = sel.value;
+      sel.innerHTML = '';
+      Object.keys(profilesCache).forEach(id => { const o = document.createElement('option'); o.value = id; o.textContent = displayNameOf(profilesCache[id]); sel.appendChild(o); });
+      if (prev) sel.value = prev;
+    });
+  }
+  function fillApTagInputs() {
+    const id = document.getElementById('apTagUser').value;
+    const t = customTagsCache[id] || {};
+    document.getElementById('apTagText').value = t.tag || '';
+    document.getElementById('apTagEmoji').value = t.emoji || '';
+  }
+  const _of10 = openForm;
+  openForm = function (mode) { _of10(mode); if (mode === 'edit') ensureAdminPanel(); };
+
+  /* ---- More admin chat commands ---- */
+  const _hc10 = handleCommand;
+  handleCommand = function (text) {
+    const parts = text.trim().split(/\s+/);
+    const cmd = parts[0].toLowerCase();
+    const flash = (m, bad) => { setStatus(m, !!bad); setTimeout(() => setStatus('', false), 2500); };
+    if (!['/givefrugo', '/addpoints', '/kick'].includes(cmd)) return _hc10(text);
+    if (!isAdmin()) { flash("You don't have permission to do that.", true); return; }
+    const targetUid = findUidByName(parts[1] || '');
+    if (!targetUid) { flash('User not found.', true); return; }
+    if (cmd === '/givefrugo') {
+      const days = Math.max(1, parseInt(parts[2]) || 1), tier = parseInt(parts[3]) || 1;
+      const existing = frugoCache[targetUid];
+      const remainingMs = (existing && existing.expires > Date.now()) ? existing.expires - Date.now() : 0;
+      db.ref('frugoStatus/' + targetUid).set({ expires: Date.now() + days * 86400000 + remainingMs, tier });
+      flash('Gave ' + days + ' day(s) of Tier ' + tier + ' Frugo to ' + parts[1] + '.');
+    } else if (cmd === '/addpoints') {
+      const amt = parseInt(parts[2]) || 0;
+      const mine = statsCache[targetUid] || { points: 0, level: 0, msgCount: 0 };
+      const updated = { ...mine, points: Math.max(0, (mine.points || 0) + amt) };
+      statsCache[targetUid] = updated; db.ref('stats/' + targetUid).set(updated);
+      flash((amt >= 0 ? 'Gave ' : 'Removed ') + Math.abs(amt) + ' points ' + (amt >= 0 ? 'to ' : 'from ') + parts[1] + '.');
+    } else if (cmd === '/kick') {
+      ['vc/main'].forEach(p => db.ref(p + '/' + targetUid).remove());
+      db.ref('vc').once('value').then(snap => { const all = snap.val() || {}; Object.keys(all).forEach(room => { if (all[room] && all[room][targetUid]) db.ref('vc/' + room + '/' + targetUid).remove(); }); });
+      flash('Removed ' + parts[1] + ' from any voice call.');
+    }
+  };
+})();
+
 </script>
 </body>
 </html>
