@@ -2787,7 +2787,7 @@ else { openForm('setup'); }
   });
 
   /* Mention sound */
-  function fcBeep() {
+  function fcBeep() { if (window.fcPingAudio && window.fcPingAudio()) return;
     if (localStorage.getItem('fc_sound') === 'off') return;
     try { const c = new (window.AudioContext || window.webkitAudioContext)(); const o = c.createOscillator(), g = c.createGain(); o.connect(g); g.connect(c.destination); o.frequency.value = 880; g.gain.value = 0.08; o.start(); o.stop(c.currentTime + 0.15); setTimeout(() => c.close(), 400); } catch (e) {}
   }
@@ -3023,8 +3023,8 @@ else { openForm('setup'); }
   addBot();
 
   /* Updater posts the changelog by itself when a new version goes live (an admin has to open the site once) */
-  const SITE_VERSION = '1.7';
-  const SITE_LOG = '**Website Update — V1.7**\n\n• New free styles: YouTube 2005, MySpace, GeoCities\n• New Frugo styles: Facebook 2008, AIM Buddy List, plus Roblox 2010, Windows 7 Aero, Terminal\n• Projects now show a Loading assets bar and have a Reload game button\n• Projects can have Files (images, sounds) - click a project name, then Files\n• New Updates channel with the Updater bot\n• Frugo button moved next to Settings, Esc closes windows';
+  const SITE_VERSION = '1.8';
+  const SITE_LOG = '**Website Update — V1.8**\n\n• New free styles: YouTube 2005, MySpace, GeoCities\n• New Frugo styles: Facebook 2008, AIM Buddy List, Roblox 2010, Windows 7 Aero, Terminal\n• Updates channel with the Updater bot\n• Projects: Files, a loading bar, Reload game, and games can save progress again\n• Commands anywhere: /roll, /8ball, /poll\n• GIF quick buttons\n• Custom ping sound for mentions';
   setTimeout(() => {
     if (!isAdmin()) return;
     db.ref('meta/lastPostedVersion').once('value').then(s => {
@@ -3099,6 +3099,99 @@ else { openForm('setup'); }
   reloadBtn.onclick = reload; slowReload.onclick = reload;
   slowSkip.onclick = stop;
   closeBtn.addEventListener('click', () => { token++; stop(); });
+})();
+
+/* FC_EXTRAS5: /roll /8ball /poll, GIF quick buttons, ping.mp3, project save-space */
+(function () {
+  /* Commands (work in main chat, DMs and servers) */
+  const EIGHT = ['Yes.', 'No.', 'Maybe.', 'Definitely!', 'Ask again later.', 'Not likely.', 'Absolutely.', 'I would not count on it.', 'Signs point to yes.', 'Very doubtful.'];
+  const POLL_EMOJIS = ['👍', '❤️', '😂', '😮', '😢'];
+  let lastCmd = 0;
+  const notice = t => { setStatus(t, true); setTimeout(() => setStatus('', false), 4000); };
+  const _ts5 = trySend;
+  trySend = async function () {
+    const input = document.getElementById('msgInput');
+    const m = input.value.trim().match(/^\/(roll|8ball|poll)\b\s*([\s\S]*)$/i);
+    if (!m || currentView === 'updates') return _ts5();
+    if (Date.now() - lastCmd < 1500) return;
+    const cmd = m[1].toLowerCase(), arg = m[2].trim(), who = displayNameOf(profile);
+    let text, options = null;
+    if (cmd === 'roll') {
+      const d = arg.match(/^(\d{1,2})d(\d{1,4})$/i);
+      if (d) {
+        const c = Math.min(+d[1], 20), sides = Math.max(2, +d[2]);
+        const rolls = Array.from({ length: c }, () => 1 + Math.floor(Math.random() * sides));
+        text = '🎲 ' + who + ' rolled ' + c + 'd' + sides + ': [' + rolls.join(', ') + '] = **' + rolls.reduce((a, b) => a + b, 0) + '**';
+      } else {
+        const max = /^\d{1,6}$/.test(arg) ? Math.max(2, +arg) : 100;
+        text = '🎲 ' + who + ' rolled **' + (1 + Math.floor(Math.random() * max)) + '** (1-' + max + ')';
+      }
+    } else if (cmd === '8ball') {
+      if (!arg) { notice('Ask a question, like: /8ball will I win?'); return; }
+      text = '🎱 ' + who + ' asked: ' + arg + '\n**' + EIGHT[Math.floor(Math.random() * EIGHT.length)] + '**';
+    } else {
+      const parts = arg.split('|').map(x => x.trim()).filter(Boolean);
+      if (parts.length < 3 || parts.length > 6) { notice('Usage: /poll Question | option 1 | option 2 (up to 5 options)'); return; }
+      const opts = parts.slice(1); options = POLL_EMOJIS.slice(0, opts.length);
+      text = '📊 **' + parts[0] + '**\n' + opts.map((o, i) => options[i] + ' ' + o).join('\n') + '\nReact below to vote!';
+    }
+    lastCmd = Date.now();
+    input.value = ''; autoGrowInput(); delete drafts[currentView];
+    const ref = await getConvoRef(currentView).push({ uid, text, ts: firebase.database.ServerValue.TIMESTAMP, mentions: [] });
+    if (options) options.forEach(em => ref.child('reactions').child(em).child('pollbot').set(true));
+    registerMessageSent();
+  };
+  document.getElementById('sendBtn').onclick = () => trySend();
+
+  /* GIF quick-search buttons */
+  const GIF_TERMS = ['Hello', 'Bye', 'Happy Birthday', 'Good Morning', 'Good Night', 'Thanks', 'LOL', 'Sad', 'Love', 'Congrats'];
+  const _rg = renderGifPanel;
+  renderGifPanel = function () {
+    _rg();
+    if (gifTab !== 'search') return;
+    const tabs = document.querySelector('#gifPickerPanel .gifTabs');
+    if (!tabs) return;
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;flex-wrap:wrap;gap:3px;margin-top:4px;';
+    GIF_TERMS.forEach(term => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.textContent = term; b.style.cssText = 'font-size:10px;padding:1px 5px;';
+      b.onclick = () => { document.getElementById('gifSearchInput').value = term; searchGifs(term); };
+      row.appendChild(b);
+    });
+    tabs.insertAdjacentElement('afterend', row);
+  };
+
+  /* Custom ping sound: ping sound.mp3 next to the site file (falls back to the beep if missing) */
+  let pingOk = false;
+  const pingAudio = new Audio(encodeURI('ping sound.mp3'));
+  pingAudio.preload = 'auto';
+  pingAudio.addEventListener('canplaythrough', () => { pingOk = true; });
+  window.fcPingAudio = () => {
+    if (!pingOk) return false;
+    if (localStorage.getItem('fc_sound') !== 'off') { pingAudio.currentTime = 0; pingAudio.play().catch(() => {}); }
+    return true;
+  };
+
+  /* Projects: give sandboxed games a working localStorage (saved per browser) */
+  let projKey = null;
+  const _opv5 = openProjectView;
+  openProjectView = function (k) { projKey = k; _opv5(k); };
+  const frame = document.getElementById('projectPlayerFrame');
+  const desc = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, 'srcdoc');
+  function shim(html) {
+    if (html.length < 400 && html.indexOf('padding:20px') > -1) return html;
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem('fc_ps_' + projKey) || '{}'); } catch (e) {}
+    const code = '<script>(function(){var d=' + JSON.stringify(saved).replace(/</g, '\\u003c') + ',t={};function mk(o,p){function sv(){if(p)parent.postMessage({fcSave:d},"*")}return {getItem:function(k){return k in o?o[k]:null},setItem:function(k,v){o[k]=String(v);sv()},removeItem:function(k){delete o[k];sv()},clear:function(){for(var k in o)delete o[k];sv()},key:function(i){return Object.keys(o)[i]||null},get length(){return Object.keys(o).length}}}try{localStorage.getItem("x")}catch(e){try{Object.defineProperty(window,"localStorage",{value:mk(d,true)});Object.defineProperty(window,"sessionStorage",{value:mk(t,false)})}catch(e2){}}})();</' + 'script>';
+    const m = html.match(/<head[^>]*>/i) || html.match(/<html[^>]*>/i);
+    return m ? html.replace(m[0], () => m[0] + code) : code + html;
+  }
+  Object.defineProperty(frame, 'srcdoc', { get() { return desc.get.call(frame); }, set(v) { desc.set.call(frame, shim(String(v))); }, configurable: true });
+  window.addEventListener('message', e => {
+    if (e.source !== frame.contentWindow || !e.data || !e.data.fcSave || !projKey) return;
+    try { const j = JSON.stringify(e.data.fcSave); if (j.length < 200000) localStorage.setItem('fc_ps_' + projKey, j); } catch (err) {}
+  });
 })();
 
 </script>
