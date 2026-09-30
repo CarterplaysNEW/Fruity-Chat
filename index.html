@@ -330,6 +330,13 @@
   @keyframes fcGlitch { 0%,100%{text-shadow:none} 2%{text-shadow:2px 0 #ff003c,-2px 0 #00fff9} 4%{text-shadow:none} 40%{text-shadow:none} 42%{text-shadow:-2px 0 #ff003c,2px 0 #00fff9} 44%{text-shadow:none} }
   .msgEmoji { height:20px; vertical-align:middle; margin:0 1px; }
   .quickReact { font-size:12px; padding:0 3px; }
+
+  body[data-theme="chrome"] { --body-bg:#0c0c0c; --face:#101010; --face-dark:#888; --face-light:#eee; --titlebar-text:#111; --accent:#fff; --text:#eee; --input-bg:#0c0c0c; --own-msg-bg:#1a1a1a; --font:Verdana,sans-serif; --radius:6px; --mention-color:#fff; }
+  body[data-theme="chrome"] .titlebar { background:linear-gradient(90deg,red,orange,yellow,green,cyan,blue,violet,red); background-size:400% 100%; animation:fcSlide 5s linear infinite; }
+  body[data-theme="chrome"] .win { box-shadow:0 0 14px rgba(255,255,255,.4); }
+  body[data-theme="void"] { --body-bg:radial-gradient(circle at 50% 50%,#1a0033 0%,#05010a 70%); --face:#0a0512; --face-dark:#3a1f66; --face-light:#7a4fd6; --titlebar-grad:radial-gradient(circle,#2a0a4a,#0a0212); --titlebar-text:#c9a8ff; --accent:#7a4fd6; --text:#d8c8ff; --input-bg:#0a0512; --own-msg-bg:#180a2c; --font:Verdana,sans-serif; --radius:50px 6px 50px 6px; --mention-color:#ff6bd6; }
+  body[data-theme="void"] .win { box-shadow:0 0 40px #3a1f66; animation:fcVoidPulse 4s ease-in-out infinite; }
+  @keyframes fcVoidPulse { 0%,100%{box-shadow:0 0 30px #3a1f66} 50%{box-shadow:0 0 55px #7a4fd6} }
 </style>
 </head>
 <body>
@@ -3819,6 +3826,36 @@ else { openForm('setup'); }
       flash('Removed ' + parts[1] + ' from any voice call.');
     }
   };
+})();
+
+/* FC_EXTRAS11: free TURN relay fallback (fixes drops on strict networks) + Frugo tier reshuffle + 2 new Tier 3 themes */
+(function () {
+  /* A direct (STUN-only) connection can fail or drop on networks that block peer-to-peer traffic.
+     Adding a free TURN relay as a fallback is the standard fix for exactly this symptom. */
+  rtcConfig.iceServers = (rtcConfig.iceServers || []).concat([
+    { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
+  ]);
+
+  /* Move Windows 7 Aero and AIM Buddy List up into Tier 2 (they're the fanciest of the old set) */
+  function moveToTier2(value) {
+    const opt = document.querySelector('#themeSelect option[value="' + value + '"]');
+    const g2 = document.getElementById('tier2Group');
+    if (opt && g2 && opt.parentElement && opt.parentElement.id !== 'tier2Group') g2.appendChild(opt);
+  }
+  const MOVED_TO_TIER2 = ['win7', 'aim'];
+  const _of11 = openForm;
+  openForm = function (mode) {
+    _of11(mode);
+    MOVED_TO_TIER2.forEach(moveToTier2);
+    const g3 = document.getElementById('tier3Group');
+    if (g3 && !g3.querySelector('option[value="chrome"]')) g3.insertAdjacentHTML('beforeend', '<option value="chrome">Chrome Rainbow</option><option value="void">Void</option>');
+  };
+  db.ref('frugoStatus').on('value', () => {
+    if (!hasFrugoTier(uid, 2) && MOVED_TO_TIER2.includes(document.body.dataset.theme)) applyTheme('98');
+    if (!hasFrugoTier(uid, 3) && ['chrome', 'void'].includes(document.body.dataset.theme)) applyTheme('98');
+  });
 })();
 
 </script>
