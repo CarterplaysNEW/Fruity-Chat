@@ -337,6 +337,8 @@
   body[data-theme="void"] { --body-bg:radial-gradient(circle at 50% 50%,#1a0033 0%,#05010a 70%); --face:#0a0512; --face-dark:#3a1f66; --face-light:#7a4fd6; --titlebar-grad:radial-gradient(circle,#2a0a4a,#0a0212); --titlebar-text:#c9a8ff; --accent:#7a4fd6; --text:#d8c8ff; --input-bg:#0a0512; --own-msg-bg:#180a2c; --font:Verdana,sans-serif; --radius:50px 6px 50px 6px; --mention-color:#ff6bd6; }
   body[data-theme="void"] .win { box-shadow:0 0 40px #3a1f66; animation:fcVoidPulse 4s ease-in-out infinite; }
   @keyframes fcVoidPulse { 0%,100%{box-shadow:0 0 30px #3a1f66} 50%{box-shadow:0 0 55px #7a4fd6} }
+
+  #vcFullscreenVideo { max-width:98% !important; max-height:90% !important; }
 </style>
 </head>
 <body>
@@ -3049,7 +3051,7 @@ else { openForm('setup'); }
   addBot();
 
   /* Updater posts the changelog by itself when a new version goes live (an admin has to open the site once) */
-  const SITE_VERSION = '1.9';
+  const SITE_VERSION = '2.0';
   const SITE_LOG = '**Website Update — V1.9**\n\n• Frugo Tier 2 and Tier 3 — buy them in the Frugo shop\n• Animated Frugo themes: Matrix Rain, Synthwave Sunset (Tier 2), Galaxy, Glitch (Tier 3)\n• Quick reactions — your 3 most-used emoji show right on each message\n• Typing / now shows a list of commands as you type\n• Custom emoji (Tier 2+) — upload your own and use it with :name:\n• GIF avatars (Tier 2+) — upload an animated profile picture';
   setTimeout(() => {
     if (!isAdmin()) return;
@@ -3856,6 +3858,98 @@ else { openForm('setup'); }
     if (!hasFrugoTier(uid, 2) && MOVED_TO_TIER2.includes(document.body.dataset.theme)) applyTheme('98');
     if (!hasFrugoTier(uid, 3) && ['chrome', 'void'].includes(document.body.dataset.theme)) applyTheme('98');
   });
+})();
+
+/* FC_EXTRAS12: fix silently-blocked audio on VC video/audio (shows a click-to-unmute badge) + per-tile mute */
+(function () {
+  function addUnmuteBadge(tile, mediaEl, otherUid) {
+    if (tile.querySelector('.unmuteBadge')) return;
+    const b = document.createElement('div');
+    b.className = 'unmuteBadge';
+    b.textContent = '\U0001F507 Click for sound';
+    b.style.cssText = 'position:absolute;bottom:2px;left:2px;right:2px;background:#c00;color:#fff;font-size:9px;text-align:center;padding:2px;cursor:pointer;border-radius:2px;';
+    tile.style.position = tile.style.position || 'relative';
+    tile.appendChild(b);
+    b.onclick = e => { e.stopPropagation(); mediaEl.muted = false; mediaEl.play().then(() => b.remove()).catch(() => {}); };
+  }
+  function tryPlay(mediaEl, tile, otherUid) {
+    const p = mediaEl.play();
+    if (p && p.catch) p.catch(() => { if (tile) addUnmuteBadge(tile, mediaEl, otherUid); });
+  }
+  const _ars12 = attachRemoteStream;
+  attachRemoteStream = function (otherUid, stream) {
+    _ars12(otherUid, stream);
+    if (otherUid === uid) return;
+    const tile = document.getElementById('vcTile_' + otherUid);
+    if (tile) { const vid = tile.querySelector('video'); if (vid) tryPlay(vid, tile, otherUid); }
+    const a = vcAudioEls[otherUid];
+    if (a && !tile) tryPlay(a, null, otherUid);
+  };
+
+  /* Per-tile mute toggle for other people's video (click their name to bring up the toggle) */
+  const _rvt12 = renderVcTiles;
+  renderVcTiles = function () {
+    _rvt12();
+    document.querySelectorAll('.vcTile').forEach(tile => {
+      const otherUid = tile.id.slice(7);
+      if (otherUid === uid || tile.querySelector('.muteToggle')) return;
+      const t = document.createElement('span');
+      t.className = 'muteToggle'; t.textContent = '\U0001F50A'; t.title = 'Mute/unmute this person';
+      t.style.cssText = 'position:absolute;top:2px;right:2px;cursor:pointer;font-size:11px;background:rgba(0,0,0,.5);border-radius:3px;padding:0 2px;';
+      tile.style.position = tile.style.position || 'relative';
+      tile.appendChild(t);
+      t.onclick = e => {
+        e.stopPropagation();
+        const vid = tile.querySelector('video'), a = vcAudioEls[otherUid];
+        const el = vid || a;
+        if (!el) return;
+        el.muted = !el.muted; t.textContent = el.muted ? '\U0001F507' : '\U0001F50A';
+        if (!el.muted) tryPlay(el, tile, otherUid);
+      };
+    });
+  };
+})();
+
+/* FC_EXTRAS13: bigger fullscreen video, clear stale signaling data on join, visible per-tile connection status */
+(function () {
+  /* Clear out any leftover signaling data under our own uid before joining, in case an earlier
+     broken session left stale entries behind that could confuse a fresh connection attempt. */
+  const _jvc13 = joinVC;
+  joinVC = async function (room) {
+    room = room || 'main';
+    try {
+      await db.ref('vcSignal/' + room + '/' + uid).remove();
+      const candSnap = await db.ref('vcCandidates/' + room).once('value');
+      const all = candSnap.val() || {};
+      Object.keys(all).forEach(pairKeyStr => { if (pairKeyStr.indexOf(uid) !== -1) db.ref('vcCandidates/' + room + '/' + pairKeyStr).remove(); });
+    } catch (e) {}
+    return _jvc13(room);
+  };
+
+  /* Visible connection status per tile, so a failure is something you can actually see and report */
+  const _cp13 = createPeer;
+  createPeer = function (otherUid) {
+    const pc = _cp13(otherUid);
+    function updateBadge(text, color) {
+      const tile = document.getElementById('vcTile_' + otherUid);
+      if (!tile) return;
+      let b = tile.querySelector('.connBadge');
+      if (!b) { b = document.createElement('div'); b.className = 'connBadge'; b.style.cssText = 'position:absolute;top:2px;left:2px;font-size:9px;padding:1px 4px;border-radius:2px;color:#fff;'; tile.style.position = tile.style.position || 'relative'; tile.appendChild(b); }
+      b.textContent = text; b.style.background = color;
+      if (text === 'connected') setTimeout(() => { if (b && b.textContent === 'connected') b.remove(); }, 2500);
+    }
+    updateBadge('connecting…', '#999');
+    pc.addEventListener('connectionstatechange', () => {
+      const st = pc.connectionState;
+      if (st === 'connected') updateBadge('connected', '#2a2');
+      else if (st === 'failed') updateBadge('connection failed', '#c00');
+      else if (st === 'disconnected') updateBadge('reconnecting…', '#c80');
+      else updateBadge(st, '#999');
+    });
+    return pc;
+  };
+
+  /* Bigger fullscreen stream */
 })();
 
 </script>
