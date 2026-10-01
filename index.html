@@ -339,6 +339,20 @@
   @keyframes fcVoidPulse { 0%,100%{box-shadow:0 0 30px #3a1f66} 50%{box-shadow:0 0 55px #7a4fd6} }
 
   #vcFullscreenVideo { max-width:98% !important; max-height:90% !important; }
+
+  #profilePlusMenu { border-radius:3px; box-shadow:0 2px 8px rgba(0,0,0,.3); }
+
+  body[data-theme="netscape"] {
+    --body-bg:#5a4a8a; --face:#efe9f7; --face-dark:#8a6fc0; --face-light:#fff;
+    --titlebar-grad:linear-gradient(90deg,#3d2b6b,#6f4fb0); --titlebar-text:#fff; --accent:#00a69c;
+    --text:#2a1a4a; --input-bg:#fff; --own-msg-bg:#e3dbf5; --font:Arial,Helvetica,sans-serif; --radius:2px; --mention-color:#00a69c;
+  }
+  body[data-theme="netscape"] .win { border:1px solid #3d2b6b; }
+  body[data-theme="icq"] {
+    --body-bg:#d9f2d9; --face:#f2fbf2; --face-dark:#7fc87f; --face-light:#fff;
+    --titlebar-grad:linear-gradient(90deg,#3d9b3d,#6fd06f); --titlebar-text:#fff; --accent:#2f8f2f;
+    --text:#1a3a1a; --input-bg:#fff; --own-msg-bg:#e3f7e3; --font:Tahoma,sans-serif; --radius:4px; --mention-color:#2f8f2f;
+  }
 </style>
 </head>
 <body>
@@ -3950,6 +3964,166 @@ else { openForm('setup'); }
   };
 
   /* Bigger fullscreen stream */
+})();
+
+/* FC_EXTRAS14: rename Updater -> FruityBot, per-user Mute/Block/Nickname/Report via a + on their profile */
+(function () {
+  let mutedCache = {}, blockedCache = {}, nicknameCache = {};
+  db.ref('mutes/' + uid).on('value', snap => { mutedCache = snap.val() || {}; });
+  db.ref('blocks/' + uid).on('value', snap => { blockedCache = snap.val() || {}; });
+  db.ref('nicknames/' + uid).on('value', snap => { nicknameCache = snap.val() || {}; });
+
+  function nameFor(id, p) { return nicknameCache[id] || displayNameOf(p || profilesCache[id] || {}); }
+
+  /* ---- Nickname substitution in rendered message rows and the DM list (read-only observers,
+     never touches the real displayNameOf/escapeHtml which are const and can't be overridden) ---- */
+  new MutationObserver(list => list.forEach(r => r.addedNodes.forEach(row => {
+    if (!row.classList || !row.classList.contains('msg') || !row.dataset.uid) return;
+    const id = row.dataset.uid;
+    if (!nicknameCache[id]) return;
+    const nameEl = row.querySelector('.name');
+    if (!nameEl) return;
+    const crown = adminsCache[id] ? '\U0001F451' : '';
+    const frugoIcon = hasFrugo(id) ? '\U0001F379' : '';
+    nameEl.innerHTML = crown + frugoIcon + tagPrefixFor(id) + escapeHtml(nicknameCache[id]);
+  }))).observe(document.getElementById('messages'), { childList: true });
+  new MutationObserver(list => list.forEach(r => r.addedNodes.forEach(row => {
+    if (!row.classList || !row.classList.contains('navitem')) return;
+    const span = row.querySelector('.left span:last-of-type');
+  }))).observe(document.getElementById('dmList'), { childList: true });
+
+  /* ---- Mute + Block: suppress unread badges, pings and desktop notifications from that user ---- */
+  const _wc14 = watchConvo;
+  watchConvo = function (ref, convId) {
+    if (watchedConvos.has(convId)) return;
+    watchedConvos.add(convId);
+    ref.limitToLast(1).once('value').then(snap => {
+      let lastKey = null;
+      snap.forEach(c => { lastKey = c.key; });
+      const q = lastKey ? ref.orderByKey().startAfter(lastKey) : ref;
+      q.on('child_added', s => {
+        const m = s.val();
+        if (!m || m.uid === uid) return;
+        if (mutedCache[m.uid] || blockedCache[m.uid]) return;
+        if (!convId.startsWith('srv:') && convId !== 'main') lastActivity[convId] = Date.now();
+        const wasUnread = convId !== 'main' && currentView !== convId;
+        if (wasUnread) { unreadMap[convId] = (unreadMap[convId] || 0) + 1; renderDMList(); renderServers(); updateTitle(); }
+        const st = effectiveStatus();
+        const notifyOk = st === 'online' || st === 'away';
+        if (m.mentions && m.mentions.includes(uid) && notifyOk) {
+          pings.push({ key: s.key, convId, from: nameFor(m.uid), text: m.text });
+          renderPings();
+        }
+        if (wasUnread && notifyOk && document.hidden && 'Notification' in window && Notification.permission === 'granted') {
+          new Notification(nameFor(m.uid) + ' \u2014 FruityChat', { body: (m.text || '').slice(0, 100) });
+        }
+      });
+    });
+  };
+
+  /* ---- Block: hide blocked people's DMs entirely, collapse their messages elsewhere ---- */
+  function isDMView(v) { return v !== 'main' && v !== 'updates' && !v.startsWith('srv:') && !v.startsWith('srvch:') && !v.startsWith('vc'); }
+  let blockedGroupEl = null, blockedGroupUid = null, blockedGroupMsgs = [];
+  const _am14 = addMessage;
+  addMessage = function (m, key, prepend) {
+    if (m && !prepend && blockedCache[m.uid]) {
+      if (isDMView(currentView)) return; /* fully silent in DMs */
+      const box = document.getElementById('messages');
+      if (blockedGroupEl && blockedGroupUid === m.uid && box.lastElementChild === blockedGroupEl) {
+        blockedGroupMsgs.push({ m, key });
+      } else {
+        blockedGroupMsgs = [{ m, key }]; blockedGroupUid = m.uid;
+        blockedGroupEl = document.createElement('div');
+        blockedGroupEl.className = 'msg'; blockedGroupEl.style.cssText = 'font-size:11px;color:#888;font-style:italic;';
+        box.appendChild(blockedGroupEl);
+      }
+      const n = blockedGroupMsgs.length;
+      blockedGroupEl.innerHTML = '[' + n + '] Blocked message' + (n > 1 ? 's' : '') + ' <span style="text-decoration:underline;cursor:pointer;" class="showBlockedBtn">Show</span>';
+      blockedGroupEl.querySelector('.showBlockedBtn').onclick = () => {
+        const msgs = blockedGroupMsgs, el = blockedGroupEl;
+        el.remove(); blockedGroupEl = null; blockedGroupUid = null; blockedGroupMsgs = [];
+        msgs.forEach(({ m, key }) => _am14(m, key, false));
+      };
+      box.scrollTop = box.scrollHeight;
+      return;
+    }
+    if (!prepend) { blockedGroupEl = null; blockedGroupUid = null; }
+    return _am14(m, key, prepend);
+  };
+
+  /* ---- Block: stop yourself from DMing someone you've blocked, with a FruityBot reminder ---- */
+  function botLine(text) {
+    const box = document.getElementById('messages');
+    const row = document.createElement('div');
+    row.className = 'msg';
+    row.innerHTML = '<span style="font-size:11px;color:#555;">\U0001F916 <b>FruityBot:</b> ' + escapeHtml(text) + '</span>';
+    box.appendChild(row); box.scrollTop = box.scrollHeight;
+  }
+  const _ts14 = trySend;
+  trySend = function () {
+    if (isDMView(currentView) && blockedCache[currentView]) { botLine('You have been blocked by this user.'); return; }
+    return _ts14();
+  };
+
+  /* ---- The "+" menu on a profile: Mute, Block, Nickname, Report ---- */
+  const profileCard = document.getElementById('profileCard');
+  const menuBtn = document.createElement('button');
+  menuBtn.id = 'profilePlusBtn'; menuBtn.textContent = '\u2795'; menuBtn.style.marginLeft = '4px';
+  document.getElementById('dmFromProfileBtn').insertAdjacentElement('afterend', menuBtn);
+  const menu = document.createElement('div');
+  menu.id = 'profilePlusMenu';
+  menu.style.cssText = 'display:none;position:absolute;background:#fff;border:1px solid #888;z-index:12;font-size:12px;';
+  profileCard.appendChild(menu);
+  menuBtn.onclick = e => {
+    e.stopPropagation();
+    if (!window.__fcViewedProfileId) return;
+    const id = window.__fcViewedProfileId;
+    const muted = !!mutedCache[id], blocked = !!blockedCache[id];
+    menu.innerHTML = '';
+    [
+      [muted ? 'Unmute user' : 'Mute user', () => db.ref('mutes/' + uid + '/' + id)[muted ? 'remove' : 'set'](true)],
+      [blocked ? 'Unblock user' : 'Block user', () => { db.ref('blocks/' + uid + '/' + id)[blocked ? 'remove' : 'set'](true); if (!blocked && currentView === id) switchView('main'); }],
+      ['Custom nickname', () => { const n = prompt('Nickname for this user (leave blank to remove):', nicknameCache[id] || ''); if (n === null) return; if (n.trim()) db.ref('nicknames/' + uid + '/' + id).set(n.trim()); else db.ref('nicknames/' + uid + '/' + id).remove(); }],
+      ['Report user', () => { document.getElementById('overlay').style.display = 'none'; document.getElementById('supportOverlay').style.display = 'flex'; showSupportForm('Report a user'); }]
+    ].forEach(([label, fn]) => {
+      const row = document.createElement('div');
+      row.textContent = label; row.style.cssText = 'padding:5px 10px;cursor:pointer;white-space:nowrap;';
+      row.onmouseenter = () => row.style.background = '#e8eeff'; row.onmouseleave = () => row.style.background = '';
+      row.onclick = () => { fn(); menu.style.display = 'none'; };
+      menu.appendChild(row);
+    });
+    menu.style.display = 'block';
+  };
+  document.addEventListener('click', () => { menu.style.display = 'none'; });
+  const _sp14 = showProfile;
+  showProfile = function (id) {
+    _sp14(id);
+    window.__fcViewedProfileId = id;
+    menuBtn.style.display = id === uid ? 'none' : 'inline-block';
+    const p = profilesCache[id];
+    if (p && nicknameCache[id]) document.getElementById('pName').textContent = (adminsCache[id] ? '\U0001F451 ' : '') + (hasFrugo(id) ? '\U0001F379 ' : '') + nicknameCache[id];
+  };
+
+  /* ---- Rename the Updates-channel bot from Updater to FruityBot ---- */
+  const fixBotName = () => {
+    document.querySelectorAll('#messages .msg .name, #onlineList .navitem span').forEach(el => { if (el.textContent === 'Updater') el.textContent = 'FruityBot'; });
+    const botRow = document.getElementById('botRow'); if (botRow) { const span = botRow.querySelector('.left > span:not(.statusDot):not(:has(img))'); }
+  };
+  new MutationObserver(fixBotName).observe(document.getElementById('messages'), { childList: true });
+  new MutationObserver(fixBotName).observe(document.getElementById('onlineList'), { childList: true });
+})();
+
+/* FC_EXTRAS15: two more themes -- Netscape Navigator (free) and ICQ 1998 (Frugo) */
+(function () {
+  const _of15 = openForm;
+  openForm = function (mode) {
+    _of15(mode);
+    const sel = document.getElementById('themeSelect');
+    if (sel && !sel.querySelector('option[value="netscape"]')) sel.insertAdjacentHTML('beforeend', '<option value="netscape">Netscape Navigator</option>');
+    const g1 = document.getElementById('frugoThemeGroup');
+    if (g1 && !g1.querySelector('option[value="icq"]')) g1.insertAdjacentHTML('beforeend', '<option value="icq">ICQ 1998</option>');
+  };
+  db.ref('frugoStatus').on('value', () => { if (!hasFrugo(uid) && document.body.dataset.theme === 'icq') applyTheme('98'); });
 })();
 
 </script>
