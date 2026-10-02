@@ -366,6 +366,15 @@
     --titlebar-grad:linear-gradient(90deg,#6fa8d8,#aed4ee); --titlebar-text:#0a2a4a; --accent:#4a8fc0;
     --text:#0a2a4a; --input-bg:#fff; --own-msg-bg:#dbeefa; --font:'Segoe UI',sans-serif; --radius:8px;
   }
+
+  body[data-theme="comicsans"] {
+    --body-bg:#ff66cc; --face:#ccff00; --face-dark:#ff3399; --face-light:#fff;
+    --titlebar-grad:linear-gradient(90deg,#ff66cc,#ccff00); --titlebar-text:#1a1a1a; --accent:#ff3399;
+    --text:#1a1a1a; --input-bg:#fff; --own-msg-bg:#fff2a8; --font:'Comic Sans MS','Comic Sans',cursive; --radius:16px; --mention-color:#ff3399;
+  }
+  body[data-theme="allcaps"] { --body-bg:#000; --face:#1a0000; --face-dark:#f00; --face-light:#ff6666; --titlebar-grad:#c00; --titlebar-text:#fff; --accent:#f00; --text:#f00; --input-bg:#1a0000; --own-msg-bg:#2a0000; --font:Impact,Arial,sans-serif; --radius:0px; }
+  body[data-theme="allcaps"] * { text-transform:uppercase !important; letter-spacing:.5px; }
+  body[data-theme="upsidedown"] #chat { transform:rotate(180deg); }
 </style>
 </head>
 <body>
@@ -4355,6 +4364,44 @@ else { openForm('setup'); }
       });
     });
   };
+})();
+
+/* FC_EXTRAS19: reorganize the theme dropdown into Free / Frugo / Joke sections + 3 new joke themes */
+(function () {
+  const FREE = ['98', 'xp', 'win10', 'arcade', 'vapor', 'yt2005', 'myspace', 'geocities', 'netscape', 'snow'];
+  const FRUGO = ['win01', 'vista', 'me', 'roblox', 'terminal', 'fb2008', 'aim', 'win7', 'icq', 'matrix', 'synthwave', 'galaxy', 'glitch', 'chrome', 'void'];
+  const JOKE = [['verity', 'VERITY.'], ['comicsans', 'Comic Sans Overload'], ['allcaps', 'ALL CAPS'], ['upsidedown', 'Upside Down']];
+  const LABELS = { '98': 'Windows 98', xp: 'Windows XP', win10: 'Windows 10', arcade: 'Arcade', vapor: 'Vaporwave', yt2005: 'YouTube 2005', myspace: 'MySpace', geocities: 'GeoCities', netscape: 'Netscape Navigator', snow: 'Snow', win01: 'Windows 0.1', vista: 'Windows Vista', me: 'Windows Me', roblox: 'Roblox 2010', terminal: 'Terminal', fb2008: 'Facebook 2008', aim: 'AIM Buddy List', win7: 'Windows 7 Aero', icq: 'ICQ 1998', matrix: 'Matrix Rain', synthwave: 'Synthwave Sunset', galaxy: 'Galaxy', glitch: 'Glitch', chrome: 'Chrome Rainbow', void: 'Void' };
+
+  function reorganize() {
+    const sel = document.getElementById('themeSelect');
+    if (!sel) return;
+    ['frugoThemeGroup', 'tier2Group', 'tier3Group', 'freeGroup', 'frugoGroup', 'jokeGroup'].forEach(id => {
+      const old = document.getElementById(id);
+      if (!old) return;
+      Array.from(old.querySelectorAll('option')).forEach(o => sel.appendChild(o));
+      old.remove();
+    });
+    Array.from(sel.querySelectorAll('option')).forEach(o => sel.appendChild(o));
+
+    const freeGroup = document.createElement('optgroup'); freeGroup.id = 'freeGroup'; freeGroup.label = '\U0001F193 Free Themes';
+    const frugoGroup = document.createElement('optgroup'); frugoGroup.id = 'frugoGroup'; frugoGroup.label = '\U0001F379 Frugo Themes';
+    const jokeGroup = document.createElement('optgroup'); jokeGroup.id = 'jokeGroup'; jokeGroup.label = '\U0001F921 Joke Themes';
+
+    function moveOrMake(value, group) {
+      let opt = sel.querySelector('option[value="' + value + '"]');
+      if (!opt) { opt = document.createElement('option'); opt.value = value; opt.textContent = LABELS[value] || value; }
+      group.appendChild(opt);
+    }
+    FREE.forEach(v => moveOrMake(v, freeGroup));
+    FRUGO.forEach(v => moveOrMake(v, frugoGroup));
+    JOKE.forEach(([v, label]) => { LABELS[v] = label; moveOrMake(v, jokeGroup); });
+
+    sel.innerHTML = '';
+    sel.appendChild(freeGroup); sel.appendChild(frugoGroup); sel.appendChild(jokeGroup);
+  }
+  const _of19 = openForm;
+  openForm = function (mode) { _of19(mode); reorganize(); };
 })();
 
 </script>
