@@ -2733,10 +2733,11 @@ const __fcStyleEl = document.createElement("style"); __fcStyleEl.textContent = "
     else if (gifTab === 'user') loadUserGifs(userGifState.term, true);
   });
 
-  let customEmojiMap = {}, customEmojiMeta = {};
+  window.customEmojiMap = {}; window.customEmojiMeta = {};
   db.ref('customEmojis').on('value', snap => {
-    const all = snap.val() || {}; customEmojiMap = {}; customEmojiMeta = {};
-    Object.keys(all).forEach(k => { const e = all[k]; if (e && e.name && !(e.name in customEmojiMap)) { customEmojiMap[e.name] = e.url; customEmojiMeta[e.name] = { key: k, uploaderName: e.uploaderName, uploaderUid: e.uid, ts: e.ts }; } });
+    const all = snap.val() || {}; const newMap = {}, newMeta = {};
+    Object.keys(all).forEach(k => { const e = all[k]; if (e && e.name && !(e.name in newMap)) { newMap[e.name] = e.url; newMeta[e.name] = { key: k, uploaderName: e.uploaderName, uploaderUid: e.uid, ts: e.ts }; } });
+    window.customEmojiMap = newMap; window.customEmojiMeta = newMeta;
   });
   const _fm = formatMessage;
   formatMessage = function (raw) {
@@ -3991,6 +3992,7 @@ const __fcStyleEl2 = document.createElement("style"); __fcStyleEl2.textContent =
 
   /* ================= Restructured User-Uploaded panel: Gifs / Emojis / Videos sub-tabs under one Create button ================= */
   let uuSubTab = 'gifs';
+  window.__fcUUToken = 0;
   const _rgp3 = renderGifPanel;
   renderGifPanel = function () {
     if (gifTab !== 'user') { _rgp3(); return; }
@@ -4009,7 +4011,7 @@ const __fcStyleEl2 = document.createElement("style"); __fcStyleEl2.textContent =
       </div>
       <button id="createGifBtn" style="width:100%;margin-top:4px;">+ Create ${uuSubTab === 'gifs' ? 'GIF' : uuSubTab === 'emojis' ? 'Emoji' : 'Video'}</button>
       <input type="file" id="createGifInput" accept="${uuSubTab === 'gifs' ? '.gif,image/gif' : uuSubTab === 'emojis' ? 'image/*' : 'video/*'}" style="display:none;">
-      <div class="gifGrid" id="gifGrid"></div>`;
+      <div class="gifGrid" id="${uuSubTab === 'gifs' ? 'gifGrid' : 'gifGrid2'}"></div>`;
     document.getElementById('gifTabSearch').onclick = () => { gifTab = 'search'; _rgp3(); };
     document.getElementById('gifTabFav').onclick = () => { gifTab = 'fav'; _rgp3(); };
     document.getElementById('gifTabUser').onclick = () => { gifTab = 'user'; renderGifPanel(); };
@@ -4049,24 +4051,46 @@ const __fcStyleEl2 = document.createElement("style"); __fcStyleEl2.textContent =
     replyContext = null; document.getElementById('replyBar').style.display = 'none';
     registerMessageSent();
   }
+  function sendEmojiAsText(name) {
+    const mentions = [];
+    if (replyContext && replyContext.uid !== uid) mentions.push(replyContext.uid);
+    const payload = { uid, text: ':' + name + ':', ts: firebase.database.ServerValue.TIMESTAMP, mentions };
+    if (replyContext) payload.replyTo = { key: replyContext.key, uid: replyContext.uid, name: replyContext.name, text: replyContext.text };
+    getConvoRef(currentView).push(payload);
+    if (!currentView.startsWith('srv:') && currentView !== 'main') { lastActivity[currentView] = Date.now(); renderDMList(); }
+    replyContext = null; document.getElementById('replyBar').style.display = 'none';
+    registerMessageSent();
+  }
   function loadSubTabGrid() {
-    const grid = document.getElementById('gifGrid');
-    if (!grid) return;
+    /* Bug fix: a slow-to-finish Gifs load could land AFTER switching to Emojis/Videos and
+       overwrite whatever was currently showing, because both reused the same element id.
+       Gifs keeps the id "gifGrid" (so the shared loadUserGifs() keeps working unmodified);
+       Emojis/Videos use a separate id, so a stale Gif callback finds nothing to write into. */
+    const gridIdForTab = uuSubTab === 'gifs' ? 'gifGrid' : 'gifGrid2';
     if (uuSubTab === 'gifs') { if (typeof loadUserGifs === 'function') loadUserGifs(); return; }
+    const grid = document.getElementById(gridIdForTab);
+    if (!grid) return;
+    const myToken = ++window.__fcUUToken;
     grid.innerHTML = '<div style="padding:8px;color:#777;">Loading...</div>';
+    if (uuSubTab === 'emojis') grid.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;';
+    else grid.style.cssText = '';
     const path = uuSubTab === 'emojis' ? 'customEmojis' : 'userVideos';
     db.ref(path).once('value').then(snap => {
+      if (myToken !== window.__fcUUToken) return; /* a newer tab switch happened -- discard this stale result */
+      const stillThere = document.getElementById(gridIdForTab);
+      if (!stillThere) return;
       const all = snap.val() || {};
       const keys = Object.keys(all).sort((a, b) => (all[b].ts || 0) - (all[a].ts || 0));
-      grid.innerHTML = '';
-      if (!keys.length) { grid.innerHTML = '<div style="padding:8px;color:#777;">Nothing uploaded yet.</div>'; return; }
+      stillThere.innerHTML = '';
+      if (!keys.length) { stillThere.innerHTML = '<div style="padding:8px;color:#777;">Nothing uploaded yet.</div>'; return; }
       keys.forEach(k => {
         const item = all[k];
         const box = document.createElement('div'); box.style.cssText = 'position:relative;';
         if (uuSubTab === 'emojis') {
+          box.style.cssText += 'width:72px;';
           const img = document.createElement('img'); img.src = item.url; img.title = item.name;
-          img.style.cssText = 'width:100%;aspect-ratio:1;object-fit:contain;cursor:pointer;border:1px solid var(--face-dark);border-radius:4px;';
-          img.onclick = () => { document.getElementById('gifPickerPanel').style.display = 'none'; sendAttachment(item.url, 'image/png', item.name); };
+          img.style.cssText = 'width:72px;height:72px;object-fit:contain;cursor:pointer;border:1px solid var(--face-dark);border-radius:4px;background:var(--input-bg);';
+          img.onclick = () => { document.getElementById('gifPickerPanel').style.display = 'none'; sendEmojiAsText(item.name); };
           box.appendChild(img);
         } else {
           const vid = document.createElement('video'); vid.src = item.url; vid.muted = true; vid.style.cssText = 'width:100%;cursor:pointer;border:1px solid var(--face-dark);';
@@ -4086,7 +4110,7 @@ const __fcStyleEl2 = document.createElement("style"); __fcStyleEl2.textContent =
           ov.querySelector('#uuRep').onclick = () => { ov.remove(); document.getElementById('supportOverlay').style.display = 'flex'; showSupportForm('Bug report'); };
           document.body.appendChild(ov);
         };
-        box.appendChild(info); grid.appendChild(box);
+        box.appendChild(info); stillThere.appendChild(box);
       });
     });
   }
