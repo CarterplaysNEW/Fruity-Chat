@@ -3658,39 +3658,6 @@ const __fcStyleEl = document.createElement("style"); __fcStyleEl.textContent = "
     if (delBtn) delBtn.onclick = () => { if (confirm('Delete this emoji?')) { db.ref('customEmojis/' + meta.key).remove(); ov.remove(); } };
     ov.querySelector('#eiReport').onclick = () => { ov.remove(); document.getElementById('supportOverlay').style.display = 'flex'; showSupportForm('Bug report'); };
   };
-  const _rgp = renderGifPanel;
-  renderGifPanel = function () {
-    _rgp();
-    if (gifTab !== 'user') return;
-    const grid = document.getElementById('gifGrid');
-    if (!grid || grid.dataset.emojiSectioned) return;
-    grid.dataset.emojiSectioned = '1';
-    const emojiHeader = document.createElement('div');
-    emojiHeader.textContent = 'Emojis';
-    emojiHeader.style.cssText = 'grid-column:1 / -1;font-size:11px;font-weight:bold;border-bottom:1px solid #ccc;padding:4px 0 2px;';
-    const emojiGrid = document.createElement('div');
-    emojiGrid.style.cssText = 'grid-column:1 / -1;display:flex;flex-wrap:wrap;gap:8px;padding:4px 0 8px;';
-    Object.keys(customEmojiMap).forEach(name => {
-      const box = document.createElement('div'); box.style.cssText = 'position:relative;width:56px;';
-      const img = document.createElement('img'); img.src = customEmojiMap[name]; img.title = name;
-      img.style.cssText = 'width:56px;height:56px;object-fit:contain;cursor:pointer;border:1px solid var(--face-dark);border-radius:4px;';
-      img.onclick = () => { document.getElementById('gifPickerPanel').style.display = 'none'; const input = document.getElementById('msgInput'); input.value += ':' + name + ': '; input.focus(); };
-      const info = document.createElement('span'); info.textContent = '?'; info.title = 'Info';
-      info.style.cssText = 'position:absolute;top:2px;right:2px;font-size:10px;background:rgba(0,0,0,.6);color:#fff;border-radius:50%;width:14px;height:14px;text-align:center;line-height:14px;cursor:pointer;';
-      info.onclick = e => { e.stopPropagation(); showEmojiInfo(name); };
-      box.appendChild(img); box.appendChild(info); emojiGrid.appendChild(box);
-    });
-    if (!Object.keys(customEmojiMap).length) emojiGrid.innerHTML = '<div style="font-size:11px;color:#777;">No user-uploaded emojis yet.</div>';
-    const gifsHeader = document.createElement('div');
-    gifsHeader.textContent = 'Gifs';
-    gifsHeader.style.cssText = 'grid-column:1 / -1;font-size:11px;font-weight:bold;border-bottom:1px solid #ccc;padding:4px 0 2px;';
-    grid.insertBefore(gifsHeader, grid.firstChild);
-    grid.insertBefore(emojiGrid, grid.firstChild);
-    grid.insertBefore(emojiHeader, grid.firstChild);
-  };
-  const _ren = renderGifPanel;
-  renderGifPanel = function () { const g = document.getElementById('gifGrid'); if (g) delete g.dataset.emojiSectioned; _ren(); };
-
   /* Quick-reactions can now include your custom emoji too */
   const _orp = openReactPicker;
   openReactPicker = function (btn, reactRef) {
